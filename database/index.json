@@ -1,0 +1,51 @@
+
+[
+  {
+    "id": "001",
+    "name": "Con Thỏ Mặt Trăng",
+    "tags": ["Tho", "Mat Trang"],
+    "category": "story",
+    "age": "3-6",
+    "path": "stories/con-tho-mat-trang.mp3"
+  },
+  {
+    "id": "002",
+    "name": "Hai Anh Em",
+    "tags": ["Anh Em"],
+    "category": "story",
+    "age": "3-6",
+    "path": "stories/hai-anh-em.mp3"
+  },
+  {
+    "id": "003",
+    "name": "Sự Tích Con Cú Mèo",
+    "tags": ["Su tich", "cu meo"],
+    "category": "story",
+    "age": "3-6",
+    "path": "stories/su-tich-con-cu-meo.mp3"
+  },
+  {
+    "id": "s01",
+    "name": "Nơi này có Anh",
+    "tags": ["Son Tung", "nhac"],
+    "category": "song",
+    "age": "18+",
+    "path": "songs/NoiNayCoAnh.mp3"
+  },
+  {
+    "id": "s02",
+    "name": "Chúng Ta Không Thuộc Về Nhau",
+    "tags": ["Son Tung", "nhac"],
+    "category": "song",
+    "age": "18+",
+    "path": "songs/ChungTaKhongThuocVeNhau.mp3"
+  },
+  {
+    "id": "s03",
+    "name": "Tây Du Ký",
+    "tags": ["tay du ky", "nhac phim"],
+    "category": "song",
+    "age": "10+",
+    "path": "songs/tayduky.mp3"
+  }
+]
