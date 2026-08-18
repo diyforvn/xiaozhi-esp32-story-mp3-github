@@ -136,5 +136,6 @@ void MusicPlayer::RegisterMcpTools() {
             cJSON_AddItemToObject(root, "songs", arr);
             return root;
         });
+}
 
    

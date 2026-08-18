@@ -63,6 +63,7 @@ list(APPEND SOURCES
     "boards/common/sy6970.cc"
     "boards/common/system_reset.cc"
     "boards/common/mochi_display.cc"
+    "boards/common/wikipedia_tool.cc"
 )
 if(CONFIG_ENABLE_MUSIC_PLAYER)
     list(APPEND SOURCES "boards/common/music_player.cc")
@@ -1043,6 +1044,8 @@ idf_component_register(SRCS ${SOURCES}
                         bt
                         fatfs
                         esp-libhelix-mp3
+                        esp_http_client
+                        mbedtls
                         ${MAIN_PRIV_REQUIRES_EXTRA}
                     )
 

@@ -1016,6 +1016,15 @@ menu "Smart Home IoT"
 	config ENABLE_NETWORK_DEVICES
 		bool "Enable network device control (Tasmota/ESPHome/Relay)"
 		default y
+
+    config ENABLE_WIKIPEDIA_TOOL
+        bool "Enable Wikipedia lookup tool (TEST ONLY, direct on-device fetch)"
+        default n
+        help
+            Adds a self.wikipedia.search MCP tool that fetches Wikipedia summaries
+            directly from the device over HTTPS, with no backend content filtering.
+            Intended for engineering tests only. Do not enable for child-facing
+            educational deployments without a moderation layer in front of it.
 endmenu
 
 endmenu

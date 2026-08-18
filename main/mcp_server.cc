@@ -34,6 +34,10 @@
 #include "story_player.h"
 #endif
 
+#if CONFIG_ENABLE_WIKIPEDIA_TOOL
+#include "wikipedia_tool.h"
+#endif
+
 #define TAG "MCP"
 
 McpServer::McpServer() {
@@ -153,6 +157,11 @@ void McpServer::AddCommonTools() {
     // Tải index.json từ GitHub vào RAM và đăng ký các tool self.story.*
     StoryPlayer::GetInstance().Initialize();
 #endif
+
+#if CONFIG_ENABLE_WIKIPEDIA_TOOL
+    WikipediaTool::GetInstance().Initialize();
+#endif
+
     // Restore the original tools list to the end of the tools list
     tools_.insert(tools_.end(), original_tools.begin(), original_tools.end());
 }
