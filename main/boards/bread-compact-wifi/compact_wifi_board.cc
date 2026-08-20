@@ -16,6 +16,8 @@
 #include <esp_lcd_panel_vendor.h>
 
 #include "mochi_display.h"
+#include "settings.h" 
+#include "esp_system.h"   // esp_restart()
 
 #ifdef SH1106
 #include <esp_lcd_panel_sh1106.h>
@@ -99,8 +101,18 @@ private:
         ESP_LOGI(TAG, "Turning display on");
         ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_, true));
 
-        display_ = new OledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
+        //display_ = new OledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
         //display_ = new MochiDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
+        Settings settings("board", false);  // read-only, dong ngay sau khi doc
+        std::string face = settings.GetString("face", "mochi");  // mac dinh mochi neu chua tung luu
+
+        if (face == "default") {
+            display_ = new OledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT,
+                                        DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
+        } else {
+            display_ = new MochiDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT,
+                                        DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
+        }
     }
 
     void InitializeButtons() {
@@ -153,6 +165,37 @@ private:
     // 物联网初始化，逐步迁移到 MCP 协议
     void InitializeTools() {
         static LampController lamp(LAMP_GPIO);
+
+        auto& mcp_server = McpServer::GetInstance();
+        mcp_server.AddTool(
+            "self.screen.switch_face",
+            "Luu lua chon giao dien khuon mat (default hoac mochi) vao flash roi KHOI "
+            "DONG LAI thiet bi de ap dung thay doi. CHI goi tool nay SAU KHI da hoi va "
+            "duoc nguoi dung XAC NHAN dong y doi mat va dong y khoi dong lai — thiet bi "
+            "se mat ket noi vai giay. Tham so face phai la 'default' hoac 'mochi'.",
+            PropertyList({
+                Property("face", kPropertyTypeString)
+            }),
+            [this](const PropertyList& properties) -> ReturnValue {
+                auto face = properties["face"].value<std::string>();
+                if (face != "default" && face != "mochi") {
+                    return std::string("unknown face: ") + face;
+                }
+
+                Settings settings("board", true);  // read-write
+                settings.SetString("face", face);
+
+                // Cho vai giay de JSON reply / TTS xac nhan kip gui di truoc khi
+                // reboot, tranh cat ngang giua chung. Dung task rieng, KHONG
+                // vTaskDelay ngay trong callback nay vi no dang chay tren task
+                // xu ly MCP/protocol — block o day se treo luon viec nhan lenh khac.
+                xTaskCreate([](void*) {
+                    vTaskDelay(pdMS_TO_TICKS(1500));
+                    esp_restart();
+                }, "restart_delay", 2048, nullptr, 5, nullptr);
+
+                return std::string("Da luu, thiet bi se khoi dong lai de doi sang mat ") + face;
+            });
     }
 
 public:
