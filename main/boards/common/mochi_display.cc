@@ -15,14 +15,7 @@ static constexpr float kDt = kTickIntervalMs / 1000.0f;
 static constexpr float kSpringStiffness = 180.0f;
 static constexpr float kSpringDamping = 16.0f;
 
-// Ty le "chong lan" giua 2 mieng-capsule lien ke cua mieng: step (khoang
-// cach tam-tam) = seg_w * kMouthOverlapRatio. Voi ratio < 1, khoang cach
-// tam LUON nho hon duong kinh hinh tron -> cac hinh tron GIAO NHAU va
-// hoa thanh 1 duong lien mach (kieu "vien thuoc" dai) thay vi dung rieng
-// le thanh cac cham tron cach biet - day chinh la nguyen nhan bug "mieng
-// bi 5 cham tron" cua ban v4 goc (step > seg_w luc do). 0.5-0.6 la vung
-// dep: du chong de lien mach nhung van giu duoc do day/mong cua net cong
-// khi curve/tilt keo tung mieng len xuong khac nhau.
+
 static constexpr float kMouthOverlapRatio = 0.55f;
 
 namespace {
@@ -47,10 +40,7 @@ MochiDisplay::MochiDisplay(esp_lcd_panel_io_handle_t io_handle,
     // duoc tinh RIENG cho 128x64 - neu man hinh cua ban khac ty le,
     // scale se giu dung ty le tuong doi.
     float scale = std::min(width_ / 128.0f, height_ / 64.0f);
-    // eye_h_ GIAM tu 36 (ban v3) xuong 28 de nhuong cho phia duoi cho
-    // mieng - neu giu nguyen 36 nhu cu se khong con hang nao ma khong
-    // tran man hinh (dung bai hoc tu bug "mieng cu vuot qua day man
-    // hinh 19px" da ghi trong header).
+    
     eye_w_  = static_cast<int>(34 * scale);
     eye_h_  = static_cast<int>(28 * scale);
     eye_gap_ = static_cast<int>(10 * scale);
@@ -622,11 +612,7 @@ void MochiDisplay::ApplyMouthToObjects() {
 
     // Seg rong theo mouth_w hien tai (mo/thu mieng theo bieu cam).
     int seg_w = std::max(3, static_cast<int>(mouth_seg_w_ * current_.mouth_w));
-    // QUAN TRONG (fix bug "5 cham tron"): step LUON duoc tinh TI LE VOI
-    // seg_w hien tai (khong bao gio doc lap voi no) - dam bao du mieng
-    // mo rong hay thu hep the nao (happy/laughing/angry...), cac hinh
-    // tron van luon CHONG LEN NHAU du de hoa thanh 1 duong lien mach,
-    // khong bao gio roi ra thanh cac cham tach biet.
+    
     int step = std::max(1, static_cast<int>(seg_w * kMouthOverlapRatio));
     int total_span = (kMouthSegCount - 1) * step + seg_w;
     int start_x = center_x - total_span / 2 + current_x_offset_;
@@ -665,11 +651,7 @@ void MochiDisplay::ApplyMouthToObjects() {
     }
 }
 
-// ---------------------------------------------------------------------
-// Mieng (v4) - kMouthSegCount mieng capsule nho ghep lai. Tao SAU
-// BuildLids() nen luon ve DE LEN TREN cung (khong sao vi khong giao
-// nhau ve khong gian voi mat/lid).
-// ---------------------------------------------------------------------
+
 void MochiDisplay::BuildMouth() {
     DisplayLockGuard lock(this);
 
