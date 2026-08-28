@@ -3,4 +3,5 @@ build trên esp-idf v5.5.4.
 fork từ bản gốc: https://github.com/78/xiaozhi-esp32
 
 Video demo story + music: https://youtu.be/UU1gSgXeHqw
+
 Video demo Wikipedia và đổi giao diện: https://youtu.be/HTss7ASq00A
