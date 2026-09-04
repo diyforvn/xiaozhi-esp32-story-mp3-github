@@ -117,6 +117,33 @@ void McpServer::AddCommonTools() {
             });
     }
 
+        if (display && display->GetIdleAnimationNames().size() > 1) {  // >1 vi luon co san "none"
+        AddTool("self.screen.list_idle_animations",
+            "List available idle screensaver animations for the screen, including \"none\" "
+            "which disables the animation and shows the plain default icon instead.",
+            PropertyList(),
+            [display](const PropertyList& properties) -> ReturnValue {
+                auto names = display->GetIdleAnimationNames();
+                cJSON* array = cJSON_CreateArray();
+                for (auto& name : names) {
+                    cJSON_AddItemToArray(array, cJSON_CreateString(name.c_str()));
+                }
+                return array;
+            });
+
+        AddTool("self.screen.set_idle_animation",
+            "Change the idle screensaver animation on the screen while waiting for interaction. "
+            "Pass name = \"none\" to disable the animation and use the plain default icon instead. "
+            "Call `self.screen.list_idle_animations` first to get valid names.",
+            PropertyList({
+                Property("name", kPropertyTypeString)
+            }),
+            [display](const PropertyList& properties) -> ReturnValue {
+                auto name = properties["name"].value<std::string>();
+                return display->SetIdleAnimationName(name);
+            });
+    }
+
     auto camera = board.GetCamera();
     if (camera) {
         AddTool("self.camera.take_photo",
@@ -158,7 +185,7 @@ void McpServer::AddCommonTools() {
     StoryPlayer::GetInstance().Initialize();
 #endif
 
-#if CONFIG_ENABLE_WIKIPEDIA_TOOL
+#if CONFIG_ENABLE_WIKIPEDIA_TOOL 
     WikipediaTool::GetInstance().Initialize();
 #endif
 

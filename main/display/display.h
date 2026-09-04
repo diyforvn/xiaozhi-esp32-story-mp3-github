@@ -15,6 +15,8 @@
 #include <string>
 #include <chrono>
 
+#include <vector>   // THÊM
+
 class Theme {
 public:
     Theme(const std::string& name) : name_(name) {}
@@ -35,6 +37,9 @@ public:
     virtual void ShowNotification(const std::string &notification, int duration_ms = 3000);
     virtual void SetEmotion(const char* emotion);
     virtual void SetChatMessage(const char* role, const char* content);
+    virtual void SetIdleAnimation(bool active) {}   // THÊM — mặc định không làm gì
+    virtual std::vector<std::string> GetIdleAnimationNames() { return {}; }   // THÊM
+    virtual bool SetIdleAnimationName(const std::string& name) { return false; }  // THÊM
     virtual void ClearChatMessages();
     virtual void SetTheme(Theme* theme);
     virtual Theme* GetTheme() { return current_theme_; }

@@ -209,6 +209,17 @@ void LvglGif::NextFrame() {
         return;
     }
 
+    if (has_next < 0) {
+        // Lỗi giải mã giữa chừng -> rewind và phát lại từ đầu thay vì đứng hình
+        ESP_LOGW(TAG, "GIF decode error mid-stream, rewinding");
+        gd_rewind(gif_);
+        if (gif_->canvas) {
+            gd_render_frame(gif_, gif_->canvas);
+            if (frame_callback_) frame_callback_();
+        }
+        return;
+    }
+
     // Detect loop by checking if file position jumped back (rewound to start)
     // This works for looping GIFs regardless of when loop_count is set
     if (loop_delay_ms_ > 0 && gif_->f_rw_p < pos_before) {

@@ -874,6 +874,8 @@ void Application::HandleStateChangedEvent() {
     auto display = board.GetDisplay();
     auto led = board.GetLed();
     led->OnStateChanged();
+
+    display->SetIdleAnimation(new_state == kDeviceStateIdle);   // THÊM — chỉ true khi Idle
     
     switch (new_state) {
         case kDeviceStateUnknown:

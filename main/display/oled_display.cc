@@ -11,7 +11,12 @@
 #include <esp_lvgl_port.h>
 #include <font_awesome.h>
 
+#include "settings.h"   // THÊM, dùng để lưu lựa chọn qua NVS
+#include "idle_animation_registry.h"   // THÊM DÒNG NÀY
+
 #define TAG "OledDisplay"
+
+static constexpr const char* kIdleAnimationNone = "none";
 
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
@@ -96,6 +101,12 @@ void OledDisplay::SetupUI() {
 }
 
 OledDisplay::~OledDisplay() {
+    if (idle_gif_controller_) {           // THÊM
+        idle_gif_controller_->Stop();
+        idle_gif_controller_.reset();
+    }
+    idle_gif_image_.reset();
+
     if (content_ != nullptr) {
         lv_obj_del(content_);
     }
@@ -251,6 +262,12 @@ void OledDisplay::SetupUI_128x64() {
     lv_obj_set_flex_flow(content_, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_flex_main_place(content_, LV_FLEX_ALIGN_CENTER, 0);
 
+    // THÊM: lớp GIF idle, phủ toàn bộ content_, mặc định ẩn
+    idle_anim_img_ = lv_img_create(content_);
+    lv_obj_set_pos(idle_anim_img_, 0, 0);
+    lv_obj_add_flag(idle_anim_img_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(idle_anim_img_, LV_OBJ_FLAG_IGNORE_LAYOUT); // không bị flex chi phối vị trí
+
     content_left_ = lv_obj_create(content_);
     lv_obj_set_size(content_left_, 32, LV_SIZE_CONTENT);
     lv_obj_set_style_pad_all(content_left_, 0, 0);
@@ -261,6 +278,11 @@ void OledDisplay::SetupUI_128x64() {
     lv_label_set_text(emotion_label_, FONT_AWESOME_MICROCHIP_AI);
     lv_obj_center(emotion_label_);
     lv_obj_set_style_pad_top(emotion_label_, 8, 0);
+
+    // THÊM: lớp ảnh GIF, mặc định ẩn
+    emoji_image_ = lv_img_create(content_left_);
+    lv_obj_center(emoji_image_);
+    lv_obj_add_flag(emoji_image_, LV_OBJ_FLAG_HIDDEN);
 
     content_right_ = lv_obj_create(content_);
     lv_obj_set_size(content_right_, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
@@ -327,6 +349,11 @@ void OledDisplay::SetupUI_128x32() {
     lv_obj_set_style_text_font(emotion_label_, large_icon_font, 0);
     lv_label_set_text(emotion_label_, FONT_AWESOME_MICROCHIP_AI);
     lv_obj_center(emotion_label_);
+
+    // THÊM
+    emoji_image_ = lv_img_create(content_);
+    lv_obj_center(emoji_image_);
+    lv_obj_add_flag(emoji_image_, LV_OBJ_FLAG_HIDDEN);
 
     /* Right side */
     side_bar_ = lv_obj_create(container_);
@@ -405,4 +432,119 @@ void OledDisplay::SetTheme(Theme* theme) {
 
     auto screen = lv_screen_active();
     lv_obj_set_style_text_font(screen, text_font, 0);
+}
+
+bool OledDisplay::LoadIdleAnimationByName(const std::string& name) {
+    for (size_t i = 0; i < kIdleAnimationsCount; i++) {
+        if (name == kIdleAnimations[i].name) {
+            idle_gif_image_ = std::make_unique<LvglRawImage>(
+                (void*)kIdleAnimations[i].start,
+                kIdleAnimations[i].end - kIdleAnimations[i].start);
+            idle_gif_controller_ = std::make_unique<LvglGif>(idle_gif_image_->image_dsc());
+            idle_gif_controller_->SetFrameCallback([this]() {
+                if (idle_anim_img_) {
+                    lv_image_set_src(idle_anim_img_, idle_gif_controller_->image_dsc());
+                }
+            });
+            idle_anim_current_name_ = name;
+            return idle_gif_controller_->IsLoaded();
+        }
+    }
+    return false;
+}
+
+std::vector<std::string> OledDisplay::GetIdleAnimationNames() {
+    std::vector<std::string> names;
+    names.push_back(kIdleAnimationNone);
+    for (size_t i = 0; i < kIdleAnimationsCount; i++) {
+        names.push_back(kIdleAnimations[i].name);
+    }
+    return names;
+}
+
+bool OledDisplay::SetIdleAnimationName(const std::string& name) {
+    DisplayLockGuard lock(this);
+
+    if (name == kIdleAnimationNone) {
+        if (idle_gif_controller_) {
+            idle_gif_controller_->Stop();
+        }
+        idle_gif_controller_.reset();
+        idle_gif_image_.reset();
+        idle_anim_current_name_ = kIdleAnimationNone;
+
+        Settings settings("oled_idle_anim", true);
+        settings.SetString("name", kIdleAnimationNone);
+
+        if (idle_anim_active_) {
+            ApplyIdleState();
+        }
+        return true;
+    }
+
+    if (name == idle_anim_current_name_ && idle_gif_controller_) {
+        return true;
+    }
+    if (!LoadIdleAnimationByName(name)) {
+        return false;
+    }
+
+    Settings settings("oled_idle_anim", true);
+    settings.SetString("name", name);
+
+    if (idle_anim_active_) {
+        ApplyIdleState();
+    }
+    return true;
+}
+
+void OledDisplay::SetIdleAnimation(bool active) {
+    DisplayLockGuard lock(this);
+    if (idle_anim_img_ == nullptr) {
+        return;
+    }
+    idle_anim_active_ = active;
+
+    if (active) {
+        if (idle_anim_current_name_.empty()) {
+            // Lan dau tien vao Idle: doc lua chon da luu trong NVS
+            // Neu CHUA TUNG chon qua MCP -> mac dinh la "none" (giu nguyen hanh vi goc)
+            Settings settings("oled_idle_anim", false);
+            std::string saved_name = settings.GetString("name", kIdleAnimationNone);
+            if (saved_name != kIdleAnimationNone) {
+                LoadIdleAnimationByName(saved_name);
+            }
+            idle_anim_current_name_ = saved_name;
+        }
+        ApplyIdleState();
+    } else {
+        if (idle_gif_controller_) {
+            idle_gif_controller_->Stop();
+        }
+        lv_obj_add_flag(idle_anim_img_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(content_left_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void OledDisplay::ApplyIdleState() {
+    bool has_animation = idle_gif_controller_ && idle_gif_controller_->IsLoaded()
+                          && idle_anim_current_name_ != kIdleAnimationNone;
+
+    if (has_animation) {
+        lv_image_set_src(idle_anim_img_, idle_gif_controller_->image_dsc());
+        idle_gif_controller_->Start();
+        lv_obj_add_flag(content_left_, LV_OBJ_FLAG_HIDDEN);
+        if (content_right_ != nullptr) {
+            lv_obj_add_flag(content_right_, LV_OBJ_FLAG_HIDDEN);
+        }
+        lv_obj_remove_flag(idle_anim_img_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        // "none" hoac chua co lua chon nao -> ve dung hanh vi goc: icon tinh
+        if (idle_gif_controller_) {
+            idle_gif_controller_->Stop();
+        }
+        lv_obj_add_flag(idle_anim_img_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(content_left_, LV_OBJ_FLAG_HIDDEN);
+        // content_right_ khong dong vao day - de SetChatMessage() tu quan ly nhu code goc
+    }
 }
