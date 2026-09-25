@@ -8,6 +8,8 @@
 #include <freertos/task.h>
 
 #include "application.h"
+#include "alarm/alarm_integration.h"
+#include "xiaozhi_scene/include/scene_integration.h"
 
 #define TAG "main"
 
@@ -21,6 +23,10 @@ extern "C" void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    // trong application.cc, sau khi Wi-Fi + NVS + McpServer đã init
+    InitAlarmSubsystem();
+    //InitSceneSubsystem();  // gọi độc lập, không cần quan tâm thứ tự với InitAlarmSubsystem()
 
     // Initialize and run the application
     auto& app = Application::GetInstance();

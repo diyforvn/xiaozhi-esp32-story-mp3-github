@@ -326,6 +326,21 @@ public:
     void ParseMessage(const cJSON* json);
     void ParseMessage(const std::string& message);
 
+    // Goi mot tool DA DANG KY truc tiep, KHONG di qua kenh JSON-RPC/
+    // ReplyResult-ReplyError (kenh do gui qua Application::SendMcpMessage,
+    // von nham cho backend/AI dang lang nghe - khong phu hop cho cac noi
+    // goi noi bo trong firmware nhu bo lich hen gio, vi luc do khong ai
+    // dang lang nghe ket qua tra ve tren kenh MCP). Dung cho code C++ noi
+    // bo can biet ro thanh cong hay that bai qua callback truc tiep.
+    // arguments: cJSON object (co the la NULL neu tool khong can tham so),
+    // con song trong suot loi goi nay (ham se dung xong truoc khi return);
+    // nguoi goi tu chiu trach nhiem cJSON_Delete() arguments sau khi ham
+    // nay return. callback co the duoc goi NGAY (loi validate) hoac SAU
+    // (thanh cong/loi tu chinh tool, do tool duoc chay tren main thread
+    // qua Application::Schedule()).
+    using DirectCallResult = std::function<void(bool success, const std::string& message)>;
+    void InvokeToolDirect(const std::string& tool_name, const cJSON* arguments, DirectCallResult callback);
+
 private:
     McpServer();
     ~McpServer();

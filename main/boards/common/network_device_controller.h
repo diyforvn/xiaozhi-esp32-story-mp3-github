@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <cstdint>
 
 /*
  * NetworkDeviceController
@@ -26,6 +27,7 @@ struct NetworkDevice {
     std::string host;   // IP hoặc hostname
     std::string type;   // "tasmota" | "esphome" | "relay" | "generic"
     std::string extra;  // dữ liệu thêm: ESPHome API key, relay index, v.v.
+    std::string room;   // PHASE 3: nhóm theo phòng, vd "phong_khach", "" = chưa gán
 };
 
 class NetworkDeviceController {
@@ -54,6 +56,17 @@ private:
     // Online check (ping /  HEAD đơn giản)
     bool Ping(const std::string& host, int timeout_s = 2);
 
+    // Ping CO CACHE theo tung device id (10 giay, giong WledController) -
+    // dung cho moi lenh dieu khien de tranh cong them ~2s do ping that
+    // truoc MOI lan bat/tat thiet bi. force=true bo qua cache.
+    bool IsDeviceOnline(int device_id, const std::string& host, bool force = false);
+    struct OnlineCacheEntry {
+        bool online = false;
+        int64_t last_check_us = 0;
+    };
+    std::map<int, OnlineCacheEntry> online_cache_;
+    static constexpr int64_t kOnlineCacheUs = 10LL * 1000000; // 10 giay, giong WledController
+
     // Điều khiển từng loại thiết bị
     std::string ControlTasmota(const NetworkDevice& dev,
                                 const std::string& command,
@@ -68,6 +81,18 @@ private:
                                 const std::string& path,
                                 const std::string& method,
                                 const std::string& body);
+
+    // Dieu khien from/toi (Tasmota/ESPHome/relay/generic) - dispatch theo
+    // dev.type, dung chung cho home.device.set_power (1 thiet bi) va
+    // ControlRoom() (nhieu thiet bi). Nem exception neu loi (giu nguyen
+    // hanh vi cac Control* rieng le).
+    std::string SetDevicePower(NetworkDevice& dev, bool state);
+
+    // PHASE 3: dieu khien tat ca thiet bi cung 1 "room". Tra ve JSON tom
+    // tat ket qua tung thiet bi (khong ném exception ra ngoai cho ca
+    // nhom - 1 thiet bi loi khong duoc lam hong ket qua cac thiet bi con
+    // lai, vi vay bat loi tung device rieng le ben trong).
+    std::string ControlRoom(const std::string& room, bool state);
 
     void RegisterTools();
 };

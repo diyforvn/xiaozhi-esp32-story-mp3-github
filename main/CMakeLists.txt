@@ -64,6 +64,12 @@ list(APPEND SOURCES
     "boards/common/system_reset.cc"
     "boards/common/mochi_display.cc"
     "boards/common/wikipedia_tool.cc" 
+    "alarm/alarm_manager.cc"
+    "alarm/alarm_storage.cc"
+    "alarm/scheduler_task.cc"
+    "alarm/alarm_event_processor.cc"
+    "alarm/alarm_mcp_tools.cc"
+    "alarm/alarm_integration.cc"
 )
 if(CONFIG_ENABLE_MUSIC_PLAYER)
     list(APPEND SOURCES "boards/common/music_player.cc")
@@ -76,6 +82,10 @@ endif()
 
 if(CONFIG_ENABLE_STORY_PLAYER OR CONFIG_ENABLE_MUSIC_PLAYER)
     list(APPEND SOURCES "boards/common/media_library.cc")
+endif()
+
+if(CONFIG_ENABLE_SDCARD_MUSIC_PLAYER)
+    list(APPEND SOURCES "boards/common/sdcard_music_player.cc")
 endif()
 
 idf_build_get_property(build_components BUILD_COMPONENTS)
@@ -1079,7 +1089,15 @@ idf_component_register(SRCS ${SOURCES}
                         esp_http_client
                         mbedtls
                         ${MAIN_PRIV_REQUIRES_EXTRA}
+                        nvs_flash      # AlarmStorage dùng NVS
+                        esp_timer      # SchedulerTask dùng esp_timer
+                        lwip           # esp_sntp cần lwip (thường đã có sẵn qua wifi)
+                        json           # cJSON — trong ESP-IDF là component "json"
                     )
+
+if(CONFIG_ENABLE_SDCARD_MUSIC_PLAYER)
+    target_link_libraries(${COMPONENT_LIB} PRIVATE idf::esp_driver_sdmmc idf::esp_driver_sdspi)
+endif()
 
 # Use target_compile_definitions to define BOARD_TYPE, BOARD_NAME
 # If BOARD_NAME is empty, use BOARD_TYPE

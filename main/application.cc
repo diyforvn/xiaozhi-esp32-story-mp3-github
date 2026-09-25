@@ -14,6 +14,10 @@
 #include "media_library.h"
 #endif
 
+#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
+#include "sdcard_music_player.h"
+#endif
+
 #include <cstring>
 #include <esp_log.h>
 #include <cJSON.h>
@@ -104,6 +108,12 @@ void Application::Initialize() {
 
     #if CONFIG_ENABLE_STORY_PLAYER || CONFIG_ENABLE_MUSIC_PLAYER
         MediaLibrary::GetInstance().SetActiveSessionChecker([this]() {
+            return GetDeviceState() != kDeviceStateIdle;
+        });
+    #endif
+
+    #if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
+        SdCardMusicPlayer::GetInstance().SetActiveSessionChecker([this]() {
             return GetDeviceState() != kDeviceStateIdle;
         });
     #endif
@@ -888,6 +898,9 @@ void Application::HandleStateChangedEvent() {
 #if CONFIG_ENABLE_STORY_PLAYER || CONFIG_ENABLE_MUSIC_PLAYER
             MediaLibrary::GetInstance().UnduckAfterSpeech();
 #endif
+#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
+            SdCardMusicPlayer::GetInstance().ResumeAfterConversation();   // chỉ ở case kDeviceStateIdle
+#endif
             break;
         case kDeviceStateConnecting:
             display->SetStatus(Lang::Strings::CONNECTING);
@@ -896,13 +909,19 @@ void Application::HandleStateChangedEvent() {
 #if CONFIG_ENABLE_STORY_PLAYER || CONFIG_ENABLE_MUSIC_PLAYER
     MediaLibrary::GetInstance().DuckForSpeech();   // im lặng ngay khi bắt đầu vào phiên *********************
 #endif
+#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
+            SdCardMusicPlayer::GetInstance().StopForConversation();   // chỉ ở case kDeviceStateIdle
+#endif
             break;
         case kDeviceStateListening:
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
 #if CONFIG_ENABLE_STORY_PLAYER || CONFIG_ENABLE_MUSIC_PLAYER
     MediaLibrary::GetInstance().DuckForSpeech();   // XOÁ dòng UnduckAfterSpeech() cũ ở đây
-#endif			
+#endif		
+#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
+            SdCardMusicPlayer::GetInstance().StopForConversation();   // chỉ ở case kDeviceStateIdle
+#endif	
 
             // Make sure the audio processor is running
             if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {
@@ -936,6 +955,9 @@ void Application::HandleStateChangedEvent() {
 
 #if CONFIG_ENABLE_STORY_PLAYER || CONFIG_ENABLE_MUSIC_PLAYER
             MediaLibrary::GetInstance().DuckForSpeech();
+#endif
+#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
+            SdCardMusicPlayer::GetInstance().StopForConversation();   // chỉ ở case kDeviceStateIdle
 #endif
 
             if (listening_mode_ != kListeningModeRealtime) {

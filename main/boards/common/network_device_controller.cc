@@ -15,6 +15,7 @@
 #include "settings.h"
 
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <cJSON.h>
 #include <algorithm>
 
@@ -32,6 +33,29 @@ static std::string BuildUrlFromHost(const std::string& host, const std::string& 
         return base.substr(0, base.size() - 1) + path;
     }
     return base + path;
+}
+
+// Helper: parse int an toan tu chuoi "extra" cua device, nem loi RO RANG
+// thay vi de std::stoi tu nem std::invalid_argument mac dinh (thong bao
+// loi kieu "stoi" khong co y nghia gi voi AI/nguoi dung).
+static int ParseIntSafe(const std::string& s, const std::string& field_hint) {
+    if (s.empty()) return 0;
+    try {
+        size_t pos = 0;
+        int value = std::stoi(s, &pos);
+        if (pos != s.size()) {
+            throw std::runtime_error(
+                "Invalid " + field_hint + ": '" + s + "' is not a plain integer");
+        }
+        return value;
+    } catch (const std::invalid_argument&) {
+        throw std::runtime_error(
+            "Invalid " + field_hint + ": '" + s + "' is not a number. "
+            "Check the device's 'extra' field (expected format: relay index, "
+            "e.g. '0' or '0:onoff').");
+    } catch (const std::out_of_range&) {
+        throw std::runtime_error("Invalid " + field_hint + ": '" + s + "' is out of range");
+    }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -68,9 +92,10 @@ void NetworkDeviceController::LoadDevices() {
         dev.host  = s.GetString("host");
         dev.type  = s.GetString("type", "generic");
         dev.extra = s.GetString("extra");
+        dev.room  = s.GetString("room"); // PHASE 3: thiet bi cu chua co key nay -> "" (chua gan phong)
         devices_.push_back(dev);
-        ESP_LOGI(TAG, "Loaded device[%d]: %s (%s) @ %s",
-                 i, dev.name.c_str(), dev.type.c_str(), dev.host.c_str());
+        ESP_LOGI(TAG, "Loaded device[%d]: %s (%s) @ %s room=%s",
+                 i, dev.name.c_str(), dev.type.c_str(), dev.host.c_str(), dev.room.c_str());
     }
 }
 
@@ -81,6 +106,7 @@ void NetworkDeviceController::SaveDevice(const NetworkDevice& dev) {
     s.SetString("host",  dev.host);
     s.SetString("type",  dev.type);
     s.SetString("extra", dev.extra);
+    s.SetString("room",  dev.room); // PHASE 3
 }
 
 void NetworkDeviceController::DeleteDevice(int id) {
@@ -90,6 +116,7 @@ void NetworkDeviceController::DeleteDevice(int id) {
     s.EraseKey("host");
     s.EraseKey("type");
     s.EraseKey("extra");
+    s.EraseKey("room"); // PHASE 3
 }
 
 int NetworkDeviceController::NextId() const {
@@ -120,6 +147,22 @@ bool NetworkDeviceController::Ping(const std::string& host, int timeout_s) {
     } catch (...) {
         return false;
     }
+}
+
+bool NetworkDeviceController::IsDeviceOnline(int device_id, const std::string& host, bool force) {
+    int64_t now = esp_timer_get_time();
+    auto it = online_cache_.find(device_id);
+
+    if (!force && it != online_cache_.end() &&
+        (now - it->second.last_check_us) < kOnlineCacheUs) {
+        return it->second.online;
+    }
+
+    bool reachable = Ping(host);
+    online_cache_[device_id] = OnlineCacheEntry{reachable, now};
+    ESP_LOGI(TAG, "Online cache updated: device[%d] @ %s -> %s",
+             device_id, host.c_str(), reachable ? "ONLINE" : "OFFLINE");
+    return reachable;
 }
 
 std::string NetworkDeviceController::HttpGet(const std::string& host,
@@ -234,6 +277,88 @@ std::string NetworkDeviceController::ControlGeneric(const NetworkDevice& dev,
     return HttpGet(dev.host, path);
 }
 
+// Dispatch bat/tat theo loai thiet bi - tach ra tu logic von nam thang
+// trong lambda "home.device.set_power" de ControlRoom() (Phase 3) dung
+// lai duoc, khong sao chep code.
+std::string NetworkDeviceController::SetDevicePower(NetworkDevice& dev, bool state) {
+    if (dev.type == "tasmota") {
+        return ControlTasmota(dev, "Power", state ? "ON" : "OFF");
+    } else if (dev.type == "esphome") {
+        // extra = "switch.my_switch" hoặc "light.my_light"
+        auto& entity = dev.extra;
+        auto dot = entity.find('.');
+        std::string domain = (dot != std::string::npos) ? entity.substr(0, dot) : "switch";
+        std::string eid    = (dot != std::string::npos) ? entity.substr(dot + 1) : entity;
+        return ControlEspHome(dev, domain, eid, state ? "turn_on" : "turn_off");
+    } else if (dev.type == "relay") {
+        // extra = relay index, vd "0" hoặc "0:onoff"
+        int relay_idx = 0;
+        std::string relay_mode;
+        auto colon = dev.extra.find(':');
+        if (colon != std::string::npos) {
+            relay_idx  = ParseIntSafe(dev.extra.substr(0, colon), "relay index in 'extra'");
+            relay_mode = dev.extra.substr(colon + 1);
+        } else if (!dev.extra.empty()) {
+            relay_idx = ParseIntSafe(dev.extra, "relay index in 'extra'");
+        }
+        NetworkDevice dev_copy = dev;
+        dev_copy.extra = relay_mode;
+        return ControlRelay(dev_copy, relay_idx, state);
+    } else {
+        // generic: extra = path, vd "/switch?val=1"
+        std::string path = dev.extra.empty() ? "/power" : dev.extra;
+        return ControlGeneric(dev, path + (state ? "?state=1" : "?state=0"), "GET", "");
+    }
+}
+
+// PHASE 3: dieu khien tat ca thiet bi cung 1 room. Loi tung thiet bi
+// duoc bat rieng (khong throw ra ngoai) de 1 thiet bi hong khong lam
+// dung ca nhom - AI/nguoi dung se biet duoc chinh xac thiet bi nao that
+// bai va vi sao qua JSON tra ve.
+std::string NetworkDeviceController::ControlRoom(const std::string& room, bool state) {
+    cJSON* results = cJSON_CreateArray();
+    int affected = 0;
+
+    for (auto& dev : devices_) {
+        if (dev.room != room) continue;
+        affected++;
+
+        cJSON* item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "name", dev.name.c_str());
+
+        if (!IsDeviceOnline(dev.id, dev.host)) {
+            cJSON_AddBoolToObject(item, "ok", false);
+            cJSON_AddStringToObject(item, "error", "offline");
+            cJSON_AddItemToArray(results, item);
+            continue;
+        }
+
+        try {
+            SetDevicePower(dev, state);
+            cJSON_AddBoolToObject(item, "ok", true);
+        } catch (const std::exception& e) {
+            cJSON_AddBoolToObject(item, "ok", false);
+            cJSON_AddStringToObject(item, "error", e.what());
+        }
+        cJSON_AddItemToArray(results, item);
+    }
+
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "room", room.c_str());
+    cJSON_AddNumberToObject(root, "device_count", affected);
+    cJSON_AddItemToObject(root, "results", results);
+
+    char* s = cJSON_PrintUnformatted(root);
+    std::string out(s);
+    cJSON_free(s);
+    cJSON_Delete(root);
+
+    if (affected == 0) {
+        ESP_LOGW(TAG, "ControlRoom: khong co thiet bi nao trong room '%s'", room.c_str());
+    }
+    return out;
+}
+
 // ─────────────────────────────────────────────────────────────
 // MCP Tool registration
 // ─────────────────────────────────────────────────────────────
@@ -256,6 +381,7 @@ void NetworkDeviceController::RegisterTools() {
                 cJSON_AddStringToObject(obj, "name", dev.name.c_str());
                 cJSON_AddStringToObject(obj, "type", dev.type.c_str());
                 cJSON_AddStringToObject(obj, "host", dev.host.c_str());
+                cJSON_AddStringToObject(obj, "room", dev.room.c_str());
                 cJSON_AddItemToArray(arr, obj);
             }
             char* s = cJSON_PrintUnformatted(arr);
@@ -280,7 +406,7 @@ void NetworkDeviceController::RegisterTools() {
             if (it == devices_.end()) {
                 throw std::runtime_error("Device id " + std::to_string(id) + " not found");
             }
-            bool online = Ping(it->host);
+            bool online = IsDeviceOnline(it->id, it->host, /*force=*/true);
             return std::string(
                 "{\"id\":" + std::to_string(id) +
                 ",\"name\":\"" + it->name +
@@ -307,43 +433,12 @@ void NetworkDeviceController::RegisterTools() {
                 throw std::runtime_error("Device id " + std::to_string(id) + " not found");
             }
 
-            if (!Ping(it->host)) {
+            if (!IsDeviceOnline(it->id, it->host)) {
                 throw std::runtime_error(
                     "Device '" + it->name + "' is offline at " + it->host);
             }
 
-            std::string result;
-            if (it->type == "tasmota") {
-                result = ControlTasmota(*it, "Power", state ? "ON" : "OFF");
-            } else if (it->type == "esphome") {
-                // extra = "switch.my_switch" hoặc "light.my_light"
-                auto& entity = it->extra;
-                auto dot = entity.find('.');
-                std::string domain = (dot != std::string::npos) ? entity.substr(0, dot) : "switch";
-                std::string eid    = (dot != std::string::npos) ? entity.substr(dot + 1) : entity;
-                result = ControlEspHome(*it, domain, eid, state ? "turn_on" : "turn_off");
-            } else if (it->type == "relay") {
-                // extra = relay index, vd "0" hoặc "0:onoff"
-                int relay_idx = 0;
-                std::string relay_mode;
-                auto colon = it->extra.find(':');
-                if (colon != std::string::npos) {
-                    relay_idx  = std::stoi(it->extra.substr(0, colon));
-                    relay_mode = it->extra.substr(colon + 1);
-                } else if (!it->extra.empty()) {
-                    relay_idx = std::stoi(it->extra);
-                }
-                // Tạm thời truyền relay_mode qua extra của dev copy
-                NetworkDevice dev_copy = *it;
-                dev_copy.extra = relay_mode;
-                result = ControlRelay(dev_copy, relay_idx, state);
-            } else {
-                // generic: extra = path, vd "/switch?val=1"
-                std::string path = it->extra.empty() ? "/power" : it->extra;
-                result = ControlGeneric(*it, path + (state ? "?state=1" : "?state=0"),
-                                        "GET", "");
-            }
-            return result;
+            return SetDevicePower(*it, state);
         });
 
     // ── TASMOTA command tuỳ ý ────────────────────────────────
@@ -366,7 +461,7 @@ void NetworkDeviceController::RegisterTools() {
             if (it->type != "tasmota") {
                 throw std::runtime_error("Device '" + it->name + "' is not a Tasmota device");
             }
-            if (!Ping(it->host)) {
+            if (!IsDeviceOnline(it->id, it->host)) {
                 throw std::runtime_error("Device '" + it->name + "' is offline");
             }
             return ControlTasmota(*it,
@@ -395,7 +490,7 @@ void NetworkDeviceController::RegisterTools() {
             if (it->type != "esphome") {
                 throw std::runtime_error("Device '" + it->name + "' is not an ESPHome device");
             }
-            if (!Ping(it->host)) {
+            if (!IsDeviceOnline(it->id, it->host)) {
                 throw std::runtime_error("Device '" + it->name + "' is offline");
             }
             return ControlEspHome(*it,
@@ -422,13 +517,32 @@ void NetworkDeviceController::RegisterTools() {
             if (it == devices_.end()) {
                 throw std::runtime_error("Device id " + std::to_string(id) + " not found");
             }
-            if (!Ping(it->host)) {
+            if (!IsDeviceOnline(it->id, it->host)) {
                 throw std::runtime_error("Device '" + it->name + "' is offline");
             }
             return ControlGeneric(*it,
                 props["path"].value<std::string>(),
                 props["method"].value<std::string>(),
                 props["body"].value<std::string>());
+        });
+
+    // ── PHASE 3: ROOM CONTROL ─────────────────────────────────
+    mcp.AddTool("home.room.control",
+        "Turn on or off ALL devices assigned to the same room at once. "
+        "Use home.device.list to see which room each device belongs to "
+        "(field 'room' - devices with empty room are not in any group). "
+        "(Bật/tắt tất cả thiết bị cùng 1 phòng)",
+        PropertyList({
+            Property("room",  kPropertyTypeString),
+            Property("state", kPropertyTypeBoolean)
+        }),
+        [this](const PropertyList& props) -> ReturnValue {
+            std::string room = props["room"].value<std::string>();
+            bool state = props["state"].value<bool>();
+            if (room.empty()) {
+                throw std::runtime_error("Tham so 'room' khong duoc de trong");
+            }
+            return ControlRoom(room, state);
         });
 
     // ── REGISTER / UNREGISTER (user-only) ────────────────────
@@ -438,18 +552,21 @@ void NetworkDeviceController::RegisterTools() {
         "extra: relay index for relay type (e.g. '0'), "
         "ESPHome entity for esphome type (e.g. 'switch.my_switch'), "
         "API key for ESPHome with auth. "
+        "room: optional group name (e.g. 'phong_khach') for home.room.control. "
         "(Đăng ký thiết bị mới vào hệ thống)",
         PropertyList({
             Property("name",  kPropertyTypeString),
             Property("host",  kPropertyTypeString),
             Property("type",  kPropertyTypeString),
-            Property("extra", kPropertyTypeString, std::string(""))
+            Property("extra", kPropertyTypeString, std::string("")),
+            Property("room",  kPropertyTypeString, std::string(""))
         }),
         [this](const PropertyList& props) -> ReturnValue {
             auto name  = props["name"].value<std::string>();
             auto host  = props["host"].value<std::string>();
             auto type  = props["type"].value<std::string>();
             auto extra = props["extra"].value<std::string>();
+            auto room  = props["room"].value<std::string>();
 
             if (name.empty() || host.empty()) {
                 throw std::runtime_error("name and host are required");
@@ -466,6 +583,14 @@ void NetworkDeviceController::RegisterTools() {
                     throw std::runtime_error("Device '" + name + "' already registered");
                 }
             }
+            // Kiểm tra trùng host (cùng 1 địa chỉ IP đăng ký 2 lần với 2 tên
+            // khác nhau sẽ gây nhầm lẫn khi AI liệt kê / điều khiển thiết bị)
+            for (auto& d : devices_) {
+                if (d.host == host) {
+                    throw std::runtime_error(
+                        "Host '" + host + "' is already registered as device '" + d.name + "'");
+                }
+            }
 
             int new_id = NextId();
             if (new_id < 0) {
@@ -473,7 +598,7 @@ void NetworkDeviceController::RegisterTools() {
                                          std::to_string(MAX_DEVICES) + ")");
             }
 
-            NetworkDevice dev{ new_id, name, host, type, extra };
+            NetworkDevice dev{ new_id, name, host, type, extra, room };
             devices_.push_back(dev);
             SaveDevice(dev);
 
@@ -504,6 +629,7 @@ void NetworkDeviceController::RegisterTools() {
             std::string name = it->name;
             devices_.erase(it);
             DeleteDevice(id);
+            online_cache_.erase(id);
             ESP_LOGI(TAG, "Unregistered device[%d]: %s", id, name.c_str());
             return std::string("{\"removed\":\"" + name + "\"}");
         });

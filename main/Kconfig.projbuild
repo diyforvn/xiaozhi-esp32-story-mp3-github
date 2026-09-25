@@ -1005,6 +1005,37 @@ menu "Smart Home IoT"
             Cho phep phat truyen ke tu file MP3 luu tren GitHub qua cac
             MCP tool self.story.*
 
+        config ENABLE_SDCARD_MUSIC_PLAYER
+        bool "Enable SD card MP3 player (self.sdmusic.*)"
+        default n
+
+    if ENABLE_SDCARD_MUSIC_PLAYER
+        config SDMUSIC_MOUNT_POINT
+            string "SD card mount point"
+            default "/sdcard"
+
+        config SDMUSIC_SPI_HOST
+            int "SPI host cho the SD (1 = SPI2_HOST, 2 = SPI3_HOST)"
+            default 1
+            range 1 2
+
+        config SDMUSIC_SPI_MOSI_PIN
+            int "Chan GPIO MOSI/CMD cua the SD"
+            default 40
+
+        config SDMUSIC_SPI_MISO_PIN
+            int "Chan GPIO MISO/DATA0 cua the SD"
+            default 39
+
+        config SDMUSIC_SPI_CLK_PIN
+            int "Chan GPIO CLK cua the SD"
+            default 38
+
+        config SDMUSIC_SPI_CS_PIN
+            int "Chan GPIO CS cua the SD"
+            default 46
+    endif
+
     config WLED_DEFAULT_HOST
         string "Default WLED device IP or hostname"
         default "192.168.1.50"

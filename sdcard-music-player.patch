@@ -1,0 +1,168 @@
+diff --git a/main/CMakeLists.txt b/main/CMakeLists.txt
+index 7abff35..6b4503c 100644
+--- a/main/CMakeLists.txt
++++ b/main/CMakeLists.txt
+@@ -78,6 +78,10 @@ if(CONFIG_ENABLE_STORY_PLAYER OR CONFIG_ENABLE_MUSIC_PLAYER)
+     list(APPEND SOURCES "boards/common/media_library.cc")
+ endif()
+ 
++if(CONFIG_ENABLE_SDCARD_MUSIC_PLAYER)
++    list(APPEND SOURCES "boards/common/sdcard_music_player.cc")
++endif()
++
+ idf_build_get_property(build_components BUILD_COMPONENTS)
+ # Function to find component dynamically by pattern
+ function(find_component_by_pattern PATTERN COMPONENT_VAR PATH_VAR)
+@@ -1081,6 +1085,13 @@ idf_component_register(SRCS ${SOURCES}
+                         ${MAIN_PRIV_REQUIRES_EXTRA}
+                     )
+ 
++if(CONFIG_ENABLE_SDCARD_MUSIC_PLAYER)
++    # Driver mount the SD qua SPI cho self.sdmusic.* (tach rieng thanh phan tu
++    # IDF 5.3 tro di; neu ban con dung IDF cu hon, xoa 2 dong nay di la duoc
++    # vi luc do sdmmc/sdspi da nam san trong thanh phan "driver").
++    target_link_libraries(${COMPONENT_LIB} PRIVATE idf::esp_driver_sdmmc idf::esp_driver_sdspi)
++endif()
++
+ # Use target_compile_definitions to define BOARD_TYPE, BOARD_NAME
+ # If BOARD_NAME is empty, use BOARD_TYPE
+ if(NOT BOARD_NAME)
+diff --git a/main/Kconfig.projbuild b/main/Kconfig.projbuild
+index 9c00755..59634e2 100644
+--- a/main/Kconfig.projbuild
++++ b/main/Kconfig.projbuild
+@@ -1005,6 +1005,52 @@ menu "Smart Home IoT"
+             Cho phep phat truyen ke tu file MP3 luu tren GitHub qua cac
+             MCP tool self.story.*
+ 
++    config ENABLE_SDCARD_MUSIC_PLAYER
++        bool "Enable SD card MP3 player (self.sdmusic.*)"
++        default n
++        help
++            Doc va phat file MP3 luu truc tiep tren the nho SD (hoat dong
++            offline, khong can WiFi/Internet). Them cac MCP tool
++            self.sdmusic.play / self.sdmusic.control /
++            self.sdmusic.debug_list_index de Xiaozhi AI chon bai bang giong
++            noi. Neu board cua ban da tu mount the SD san (o cung mount
++            point ben duoi), tinh nang nay se dung lai ma khong tu mount lan
++            nua; neu chua, no se tu mount qua SPI theo cac chan duoi day.
++
++    if ENABLE_SDCARD_MUSIC_PLAYER
++        config SDMUSIC_MOUNT_POINT
++            string "SD card mount point"
++            default "/sdcard"
++            help
++                Duong dan VFS de mount the SD. Neu board cua ban da mount
++                san the SD o duong dan nay, gia tri chan SPI ben duoi se
++                khong duoc dung toi.
++
++        config SDMUSIC_SPI_HOST
++            int "SPI host cho the SD (1 = SPI2_HOST, 2 = SPI3_HOST)"
++            default 1
++            range 1 2
++            help
++                Chon SPI host chua dung boi thanh phan khac (man hinh, v.v.)
++                tren board cua ban.
++
++        config SDMUSIC_SPI_MOSI_PIN
++            int "Chan GPIO MOSI/CMD cua the SD"
++            default 40
++
++        config SDMUSIC_SPI_MISO_PIN
++            int "Chan GPIO MISO/DATA0 cua the SD"
++            default 39
++
++        config SDMUSIC_SPI_CLK_PIN
++            int "Chan GPIO CLK cua the SD"
++            default 38
++
++        config SDMUSIC_SPI_CS_PIN
++            int "Chan GPIO CS cua the SD"
++            default 46
++    endif
++
+     config WLED_DEFAULT_HOST
+         string "Default WLED device IP or hostname"
+         default "192.168.1.50"
+diff --git a/main/application.cc b/main/application.cc
+index 2bd6693..cccd2b0 100644
+--- a/main/application.cc
++++ b/main/application.cc
+@@ -14,6 +14,10 @@
+ #include "media_library.h"
+ #endif
+ 
++#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
++#include "sdcard_music_player.h"
++#endif
++
+ #include <cstring>
+ #include <esp_log.h>
+ #include <cJSON.h>
+@@ -887,6 +891,9 @@ void Application::HandleStateChangedEvent() {
+             audio_service_.EnableWakeWordDetection(true);
+ #if CONFIG_ENABLE_STORY_PLAYER || CONFIG_ENABLE_MUSIC_PLAYER
+             MediaLibrary::GetInstance().UnduckAfterSpeech();
++#endif
++#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
++            SdCardMusicPlayer::GetInstance().Resume();
+ #endif
+             break;
+         case kDeviceStateConnecting:
+@@ -895,6 +902,9 @@ void Application::HandleStateChangedEvent() {
+             display->SetChatMessage("system", "");
+ #if CONFIG_ENABLE_STORY_PLAYER || CONFIG_ENABLE_MUSIC_PLAYER
+     MediaLibrary::GetInstance().DuckForSpeech();   // im lặng ngay khi bắt đầu vào phiên *********************
++#endif
++#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
++    SdCardMusicPlayer::GetInstance().Pause();
+ #endif
+             break;
+         case kDeviceStateListening:
+@@ -902,6 +912,9 @@ void Application::HandleStateChangedEvent() {
+             display->SetEmotion("neutral");
+ #if CONFIG_ENABLE_STORY_PLAYER || CONFIG_ENABLE_MUSIC_PLAYER
+     MediaLibrary::GetInstance().DuckForSpeech();   // XOÁ dòng UnduckAfterSpeech() cũ ở đây
++#endif
++#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
++    SdCardMusicPlayer::GetInstance().Pause();
+ #endif			
+ 
+             // Make sure the audio processor is running
+@@ -937,6 +950,9 @@ void Application::HandleStateChangedEvent() {
+ #if CONFIG_ENABLE_STORY_PLAYER || CONFIG_ENABLE_MUSIC_PLAYER
+             MediaLibrary::GetInstance().DuckForSpeech();
+ #endif
++#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
++            SdCardMusicPlayer::GetInstance().Pause();
++#endif
+ 
+             if (listening_mode_ != kListeningModeRealtime) {
+                 audio_service_.EnableVoiceProcessing(false);
+diff --git a/main/mcp_server.cc b/main/mcp_server.cc
+index a644e3c..f0b6b12 100644
+--- a/main/mcp_server.cc
++++ b/main/mcp_server.cc
+@@ -34,6 +34,10 @@
+ #include "story_player.h"
+ #endif
+ 
++#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
++#include "sdcard_music_player.h"
++#endif
++
+ #if CONFIG_ENABLE_WIKIPEDIA_TOOL
+ #include "wikipedia_tool.h"
+ #endif
+@@ -185,6 +189,11 @@ void McpServer::AddCommonTools() {
+     StoryPlayer::GetInstance().Initialize();
+ #endif
+ 
++#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
++    // Mount the SD (neu can), quet file MP3, dang ky cac tool self.sdmusic.*
++    SdCardMusicPlayer::GetInstance().Initialize();
++#endif
++
+ #if CONFIG_ENABLE_WIKIPEDIA_TOOL 
+     WikipediaTool::GetInstance().Initialize();
+ #endif

@@ -38,6 +38,10 @@
 #include "wikipedia_tool.h"
 #endif
 
+#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
+#include "sdcard_music_player.h"
+#endif
+
 #define TAG "MCP"
 
 McpServer::McpServer() {
@@ -187,6 +191,10 @@ void McpServer::AddCommonTools() {
 
 #if CONFIG_ENABLE_WIKIPEDIA_TOOL 
     WikipediaTool::GetInstance().Initialize();
+#endif
+
+#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
+    SdCardMusicPlayer::GetInstance().Initialize();
 #endif
 
     // Restore the original tools list to the end of the tools list
@@ -623,6 +631,65 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
         } catch (const std::exception& e) {
             ESP_LOGE(TAG, "tools/call: %s", e.what());
             ReplyError(id, e.what());
+        }
+    });
+}
+
+void McpServer::InvokeToolDirect(const std::string& tool_name, const cJSON* arguments,
+                                  DirectCallResult callback) {
+    auto tool_iter = std::find_if(tools_.begin(), tools_.end(),
+                                 [&tool_name](const McpTool* tool) {
+                                     return tool->name() == tool_name;
+                                 });
+
+    if (tool_iter == tools_.end()) {
+        ESP_LOGE(TAG, "InvokeToolDirect: Unknown tool: %s", tool_name.c_str());
+        if (callback) callback(false, "Unknown tool: " + tool_name);
+        return;
+    }
+
+    // Sao chep logic parse/validate tham so giong het DoToolCall(), vi
+    // DoToolCall la private va gan chat voi id/ReplyResult cua JSON-RPC -
+    // khong the tai su dung truc tiep o day.
+    PropertyList arguments_list = (*tool_iter)->properties();
+    try {
+        for (auto& argument : arguments_list) {
+            bool found = false;
+            if (cJSON_IsObject(arguments)) {
+                auto value = cJSON_GetObjectItem(arguments, argument.name().c_str());
+                if (argument.type() == kPropertyTypeBoolean && cJSON_IsBool(value)) {
+                    argument.set_value<bool>(value->valueint == 1);
+                    found = true;
+                } else if (argument.type() == kPropertyTypeInteger && cJSON_IsNumber(value)) {
+                    argument.set_value<int>(value->valueint);
+                    found = true;
+                } else if (argument.type() == kPropertyTypeString && cJSON_IsString(value)) {
+                    argument.set_value<std::string>(value->valuestring);
+                    found = true;
+                }
+            }
+
+            if (!argument.has_default_value() && !found) {
+                ESP_LOGE(TAG, "InvokeToolDirect: Missing valid argument: %s", argument.name().c_str());
+                if (callback) callback(false, "Missing valid argument: " + argument.name());
+                return;
+            }
+        }
+    } catch (const std::exception& e) {
+        ESP_LOGE(TAG, "InvokeToolDirect: %s", e.what());
+        if (callback) callback(false, e.what());
+        return;
+    }
+
+    // Giong DoToolCall(): chay tool tren main thread qua Schedule(), vi
+    // nhieu tool dung LVGL/display/audio khong an toan tren task lay.
+    auto& app = Application::GetInstance();
+    app.Schedule([tool_iter, arguments_list = std::move(arguments_list), callback]() {
+        try {
+            std::string result = (*tool_iter)->Call(arguments_list);
+            if (callback) callback(true, result);
+        } catch (const std::exception& e) {
+            if (callback) callback(false, e.what());
         }
     });
 }
