@@ -7,3 +7,5 @@ Video demo story + music: https://youtu.be/UU1gSgXeHqw
 Video demo Wikipedia và đổi giao diện: https://youtu.be/HTss7ASq00A
 
 Video demo thay đổi màn hình chờ: https://youtu.be/vLbtMlKMF54
+
+Video demo phát nhạc từ sd Card: https://youtu.be/7ZbR-yUbHLg
