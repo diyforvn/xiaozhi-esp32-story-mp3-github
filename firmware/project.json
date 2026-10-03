@@ -1,0 +1,29 @@
+{
+  "name": "XiaoZhi - diyforvn",
+  "chip": "ESP32S3",
+  "version": "1.0.0",
+  "description": "XiaoZhi - diyforvn",
+  "guide": "readme.md",
+  "files": [    
+    {
+      "path": "bootloader.bin",
+      "offset": "0x0000"
+    },
+    {
+      "path": "partition-table.bin",
+      "offset": "0x8000"
+    },
+    {
+      "path": "ota_data_initial.bin",
+      "offset": "0xd000"
+    },
+    {
+      "path": "xiaozhi.bin",
+      "offset": "0x20000"
+    },
+    {
+      "path": "generated_assets.bin",
+      "offset": "0x800000"
+    }
+  ]
+}
