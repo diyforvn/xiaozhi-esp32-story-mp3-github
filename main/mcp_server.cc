@@ -42,6 +42,8 @@
 #include "sdcard_music_player.h"
 #endif
 
+#include "traffic_cam.h"
+
 #define TAG "MCP"
 
 McpServer::McpServer() {
@@ -196,6 +198,8 @@ void McpServer::AddCommonTools() {
 #if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
     SdCardMusicPlayer::GetInstance().Initialize();
 #endif
+
+    TrafficCam::GetInstance().RegisterMcpTools();
 
     // Restore the original tools list to the end of the tools list
     tools_.insert(tools_.end(), original_tools.begin(), original_tools.end());

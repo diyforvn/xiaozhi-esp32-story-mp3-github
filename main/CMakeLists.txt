@@ -70,6 +70,7 @@ list(APPEND SOURCES
     "alarm/alarm_event_processor.cc"
     "alarm/alarm_mcp_tools.cc"
     "alarm/alarm_integration.cc"
+    "boards/common/traffic_cam.cc" 
 )
 if(CONFIG_ENABLE_MUSIC_PLAYER)
     list(APPEND SOURCES "boards/common/music_player.cc")
@@ -1088,6 +1089,7 @@ idf_component_register(SRCS ${SOURCES}
                         esp-libhelix-mp3
                         esp_http_client
                         mbedtls
+                        esp-tls
                         ${MAIN_PRIV_REQUIRES_EXTRA}
                         nvs_flash      # AlarmStorage dùng NVS
                         esp_timer      # SchedulerTask dùng esp_timer
