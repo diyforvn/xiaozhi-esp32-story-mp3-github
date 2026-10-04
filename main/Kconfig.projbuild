@@ -983,7 +983,61 @@ menu "TAIJIPAI_S3_CONFIG"
         启动双声道
 endmenu
 
-menu "Smart Home IoT"
+menu "MCP Tools"
+    config MCP_ENABLE_DEVICE_TOOLS
+        bool "Enable device status and audio tools"
+        default y
+        help
+            Register self.get_device_status and self.audio_speaker.* tools.
+
+    config MCP_ENABLE_DISPLAY_TOOLS
+        bool "Enable display tools"
+        default y
+        help
+            Register self.screen.* tools when supported by the selected board.
+
+    config MCP_ENABLE_CAMERA_TOOLS
+        bool "Enable camera capture tool"
+        default y
+        help
+            Register self.camera.take_photo when the selected board has a camera.
+
+    config MCP_ENABLE_SYSTEM_TOOLS
+        bool "Enable system information and reboot tools"
+        default y
+
+    config MCP_ENABLE_FIRMWARE_TOOL
+        bool "Enable firmware upgrade tool"
+        default y
+
+    config MCP_ENABLE_ASSET_TOOLS
+        bool "Enable asset download configuration tool"
+        default y
+
+    config MCP_ENABLE_BOARD_TOOLS
+        bool "Enable custom tools for the selected board"
+        default y
+        help
+            Enables MCP tools registered by the selected board implementation.
+            Board tools are selected automatically with Board Type and do not
+            require changes to this menu when adding another board tool.
+
+    config MCP_ENABLE_ALARM_TOOLS
+        bool "Enable alarm and reminder tools"
+        default y
+
+    config MCP_ENABLE_SCENE_TOOLS
+        bool "Enable scene tools"
+        default y
+
+    config MCP_ENABLE_TRAFFIC_CAM_TOOLS
+        bool "Enable traffic camera tools"
+        default y
+
+    config MCP_ENABLE_PRESS_TO_TALK_TOOLS
+        bool "Enable press-to-talk mode tool"
+        default y
+
     config ENABLE_WLED
         bool "Enable WLED smart light control"
         default y

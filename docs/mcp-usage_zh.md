@@ -15,6 +15,12 @@ MCP（Model Context Protocol）是新一代推荐用于物联网控制的协议�
 
 详细协议格式与交互请见 [`mcp-protocol_zh.md`](./mcp-protocol_zh.md)。
 
+## menuconfig 工具管理
+
+运行 `idf.py menuconfig`，进入 **Xiaozhi Assistant → MCP Tools**，可按设备状态/音量、显示、摄像头、系统、固件升级、资源下载、闹钟、场景、交通摄像头及按键说话模式等类别启用或禁用工具。WLED、音乐、故事、SD 卡音乐、网络设备和 Wikipedia 也在同一菜单管理。
+
+`Enable custom tools for the selected board` 控制当前 **Board Type** 对应的所有板级工具。构建时只会编译已选 board 的实现；在该 board 代码中通过 `McpServer::AddTool()` 注册的新工具会自动归入板级工具组，无需为每个工具单独改 menuconfig 或中央注册列表。`tools/list` 只会返回已启用且当前 board 支持的工具。
+
 ## 设备端工具注册方法说明
 
 设备通过 `McpServer::AddTool` 方法注册可被后台调用的"工具"。其常用函数签名如下：

@@ -15,6 +15,12 @@ MCP (Model Context Protocol) is the recommended protocol for IoT control in this
 
 See [`mcp-protocol.md`](./mcp-protocol.md) for the exact message format.
 
+## Managing Tools in menuconfig
+
+Run `idf.py menuconfig` and open **Xiaozhi Assistant → MCP Tools** to enable or disable tool groups, including device status/audio, display, camera, system, firmware upgrade, assets, alarms, scenes, traffic camera, and press-to-talk. WLED, music, story, SD-card music, network-device, and Wikipedia options are managed in the same menu.
+
+`Enable custom tools for the selected board` controls all custom tools supplied by the current **Board Type**. The build includes only the selected board implementation. Any new tool registered with `McpServer::AddTool()` from that board's code is automatically covered by this group; no per-tool menu entry or central registration-list update is needed. `tools/list` contains only enabled tools supported by the selected board.
+
 ## Registering Tools on the Device
 
 Tools are registered through the `McpServer` singleton. There are two registration APIs:

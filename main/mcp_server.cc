@@ -42,9 +42,93 @@
 #include "sdcard_music_player.h"
 #endif
 
+#if CONFIG_MCP_ENABLE_TRAFFIC_CAM_TOOLS
 #include "traffic_cam.h"
+#endif
 
 #define TAG "MCP"
+
+static bool IsMcpToolEnabled(const std::string& name) {
+    const auto has_prefix = [&name](const char* prefix) {
+        return name.compare(0, strlen(prefix), prefix) == 0;
+    };
+
+    if (name == "self.get_device_status" || has_prefix("self.audio_speaker.")) {
+        return CONFIG_MCP_ENABLE_DEVICE_TOOLS;
+    }
+    if (has_prefix("self.screen.")) {
+        return CONFIG_MCP_ENABLE_DISPLAY_TOOLS;
+    }
+    if (name == "self.camera.take_photo") {
+        return CONFIG_MCP_ENABLE_CAMERA_TOOLS;
+    }
+    if (name == "self.get_system_info" || name == "self.reboot") {
+        return CONFIG_MCP_ENABLE_SYSTEM_TOOLS;
+    }
+    if (name == "self.upgrade_firmware") {
+        return CONFIG_MCP_ENABLE_FIRMWARE_TOOL;
+    }
+    if (has_prefix("self.assets.")) {
+        return CONFIG_MCP_ENABLE_ASSET_TOOLS;
+    }
+    if (has_prefix("self.alarm.")) {
+        return CONFIG_MCP_ENABLE_ALARM_TOOLS;
+    }
+    if (has_prefix("self.scene.")) {
+        return CONFIG_MCP_ENABLE_SCENE_TOOLS;
+    }
+    if (has_prefix("self.traffic_cam.")) {
+        return CONFIG_MCP_ENABLE_TRAFFIC_CAM_TOOLS;
+    }
+    if (name == "self.set_press_to_talk") {
+        return CONFIG_MCP_ENABLE_PRESS_TO_TALK_TOOLS;
+    }
+    if (has_prefix("self.wled.")) {
+#if CONFIG_ENABLE_WLED
+        return true;
+#else
+        return false;
+#endif
+    }
+    if (has_prefix("self.music.")) {
+#if CONFIG_ENABLE_MUSIC_PLAYER
+        return true;
+#else
+        return false;
+#endif
+    }
+    if (has_prefix("self.story.")) {
+#if CONFIG_ENABLE_STORY_PLAYER
+        return true;
+#else
+        return false;
+#endif
+    }
+    if (has_prefix("self.sdmusic")) {
+#if CONFIG_ENABLE_SDCARD_MUSIC_PLAYER
+        return true;
+#else
+        return false;
+#endif
+    }
+    if (has_prefix("self.wikipedia.")) {
+#if CONFIG_ENABLE_WIKIPEDIA_TOOL
+        return true;
+#else
+        return false;
+#endif
+    }
+    if (has_prefix("home.")) {
+#if CONFIG_ENABLE_NETWORK_DEVICES
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // Any tool not owned by a shared feature is a custom tool for this board.
+    return CONFIG_MCP_ENABLE_BOARD_TOOLS;
+}
 
 McpServer::McpServer() {
 }
@@ -199,7 +283,9 @@ void McpServer::AddCommonTools() {
     SdCardMusicPlayer::GetInstance().Initialize();
 #endif
 
+#if CONFIG_MCP_ENABLE_TRAFFIC_CAM_TOOLS
     TrafficCam::GetInstance().RegisterMcpTools();
+#endif
 
     // Restore the original tools list to the end of the tools list
     tools_.insert(tools_.end(), original_tools.begin(), original_tools.end());
@@ -378,9 +464,16 @@ void McpServer::AddUserOnlyTools() {
 }
 
 void McpServer::AddTool(McpTool* tool) {
+    if (!IsMcpToolEnabled(tool->name())) {
+        ESP_LOGD(TAG, "Skip MCP tool %s (disabled in menuconfig)", tool->name().c_str());
+        delete tool;
+        return;
+    }
+
     // Prevent adding duplicate tools
     if (std::find_if(tools_.begin(), tools_.end(), [tool](const McpTool* t) { return t->name() == tool->name(); }) != tools_.end()) {
         ESP_LOGW(TAG, "Tool %s already added", tool->name().c_str());
+        delete tool;
         return;
     }
 

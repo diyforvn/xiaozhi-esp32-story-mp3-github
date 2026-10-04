@@ -70,8 +70,10 @@ list(APPEND SOURCES
     "alarm/alarm_event_processor.cc"
     "alarm/alarm_mcp_tools.cc"
     "alarm/alarm_integration.cc"
-    "boards/common/traffic_cam.cc" 
 )
+if(CONFIG_MCP_ENABLE_TRAFFIC_CAM_TOOLS)
+    list(APPEND SOURCES "boards/common/traffic_cam.cc")
+endif()
 if(CONFIG_ENABLE_MUSIC_PLAYER)
     list(APPEND SOURCES "boards/common/music_player.cc")
 endif()
