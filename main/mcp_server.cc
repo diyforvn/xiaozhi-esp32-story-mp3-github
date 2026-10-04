@@ -72,10 +72,18 @@ static bool IsMcpToolEnabled(const std::string& name) {
         return CONFIG_MCP_ENABLE_ASSET_TOOLS;
     }
     if (has_prefix("self.alarm.")) {
-        return CONFIG_MCP_ENABLE_ALARM_TOOLS;
+#if CONFIG_MCP_ENABLE_ALARM_TOOLS
+        return true;
+#else
+        return false;
+#endif
     }
     if (has_prefix("self.scene.")) {
-        return CONFIG_MCP_ENABLE_SCENE_TOOLS;
+#if CONFIG_MCP_ENABLE_SCENE_TOOLS
+        return true;
+#else
+        return false;
+#endif
     }
     if (has_prefix("self.traffic_cam.")) {
         return CONFIG_MCP_ENABLE_TRAFFIC_CAM_TOOLS;
