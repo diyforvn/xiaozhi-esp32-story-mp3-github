@@ -11,3 +11,5 @@ Video demo Wikipedia và đổi giao diện: https://youtu.be/HTss7ASq00A
 Video demo thay đổi màn hình chờ: https://youtu.be/vLbtMlKMF54
 
 Video demo phát nhạc từ sd Card: https://youtu.be/7ZbR-yUbHLg
+
+Video demo xe camera giao thông: https://youtu.be/JcaY30X8q5M
