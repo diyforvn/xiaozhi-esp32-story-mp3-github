@@ -46,6 +46,10 @@
 #include "traffic_cam.h"
 #endif
 
+#if CONFIG_MCP_ENABLE_CRYPTO_TOOLS
+#include "market_crypto.h"
+#endif
+
 #define TAG "MCP"
 
 static bool IsMcpToolEnabled(const std::string& name) {
@@ -87,6 +91,9 @@ static bool IsMcpToolEnabled(const std::string& name) {
     }
     if (has_prefix("self.traffic_cam.")) {
         return CONFIG_MCP_ENABLE_TRAFFIC_CAM_TOOLS;
+    }
+    if (has_prefix("self.market.")) {
+        return CONFIG_MCP_ENABLE_CRYPTO_TOOLS;
     }
     if (name == "self.set_press_to_talk") {
         return CONFIG_MCP_ENABLE_PRESS_TO_TALK_TOOLS;
@@ -295,6 +302,9 @@ void McpServer::AddCommonTools() {
     TrafficCam::GetInstance().RegisterMcpTools();
 #endif
 
+#if CONFIG_MCP_ENABLE_CRYPTO_TOOLS
+    MarketCrypto::GetInstance().RegisterMcpTools();
+#endif
     // Restore the original tools list to the end of the tools list
     tools_.insert(tools_.end(), original_tools.begin(), original_tools.end());
 }

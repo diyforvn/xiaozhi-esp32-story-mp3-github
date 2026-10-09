@@ -226,11 +226,16 @@
 
 #ifdef CONFIG_LCD_ILI9341_240X320
 #define LCD_TYPE_ILI9341_SERIAL
-#define DISPLAY_WIDTH   240
-#define DISPLAY_HEIGHT  320
-#define DISPLAY_MIRROR_X false
-#define DISPLAY_MIRROR_Y true
-#define DISPLAY_SWAP_XY false
+//#define DISPLAY_WIDTH   240
+//#define DISPLAY_HEIGHT  320
+//#define DISPLAY_MIRROR_X false
+//#define DISPLAY_MIRROR_Y true
+//#define DISPLAY_SWAP_XY false
+#define DISPLAY_WIDTH   320      // đổi từ 240
+#define DISPLAY_HEIGHT  240      // đổi từ 320
+#define DISPLAY_MIRROR_X false   // giữ nguyên
+#define DISPLAY_MIRROR_Y false   // đổi từ true
+#define DISPLAY_SWAP_XY true     // đổi từ false
 #define DISPLAY_INVERT_COLOR    false
 #define DISPLAY_RGB_ORDER  LCD_RGB_ELEMENT_ORDER_BGR
 #define DISPLAY_OFFSET_X  0

@@ -28,6 +28,17 @@
 static constexpr int kLcdW = 320;
 static constexpr int kLcdH = 240;
 
+// Cách lấp đầy màn hình:
+//  kCover   = phủ kín, cắt bớt hai mép ảnh (đẹp nhất, không méo)
+//  kStretch = phủ kín, kéo giãn (không mất gì nhưng méo nhẹ với ảnh 16:9)
+//  kContain = giữ nguyên tỷ lệ, còn dải đen trên/dưới (như bản trước)
+enum class Fit { kCover, kStretch, kContain };
+static constexpr Fit kFit = Fit::kCover;
+
+// Số điểm ảnh tối đa của ảnh giải mã trước khi phóng/thu về màn hình.
+// Đệm này nằm trong PSRAM: kDecMaxPixels * 2 byte (640*480 = khoảng 600 KB).
+static constexpr size_t kDecMaxPixels = 640 * 480;
+
 // Nếu màu bị sai (đỏ <-> xanh, ảnh nhiễu) thì đổi giá trị này.
 static constexpr bool kSwapBytes = false;
 
@@ -173,6 +184,63 @@ static void BoostColors(uint16_t* px, size_t n) {
     }
 }
 
+// BEGIN-RESAMPLE
+// Đưa ảnh đã giải mã (dw x dh, RGB565) vào buffer màn hình kLcdW x kLcdH theo kFit,
+// nội suy song tuyến để ảnh mịn khi phóng hoặc thu.
+static void ResampleToScreen(const uint16_t* src, int dw, int dh, uint16_t* dst) {
+    float sx0 = 0, sy0 = 0, sw = (float)dw, sh = (float)dh;
+    int ox = 0, oy = 0, ow = kLcdW, oh = kLcdH;
+    if (kFit == Fit::kCover) {
+        float s = std::max((float)kLcdW / dw, (float)kLcdH / dh);
+        sw = kLcdW / s;
+        sh = kLcdH / s;
+        sx0 = (dw - sw) * 0.5f;
+        sy0 = (dh - sh) * 0.5f;
+    } else if (kFit == Fit::kContain) {
+        float s = std::min((float)kLcdW / dw, (float)kLcdH / dh);
+        ow = std::max(1, std::min(kLcdW, (int)(dw * s + 0.5f)));
+        oh = std::max(1, std::min(kLcdH, (int)(dh * s + 0.5f)));
+        ox = (kLcdW - ow) / 2;
+        oy = (kLcdH - oh) / 2;
+        memset(dst, 0, (size_t)kLcdW * kLcdH * 2);
+    }
+
+    const int step_x = (int)(sw * 65536.0f / ow);
+    const int step_y = (int)(sh * 65536.0f / oh);
+    const int base_x = (int)(sx0 * 65536.0f) - 32768 + step_x / 2;
+    const int base_y = (int)(sy0 * 65536.0f) - 32768 + step_y / 2;
+    const int max_x = (dw - 1) << 16;
+    const int max_y = (dh - 1) << 16;
+
+    for (int y = 0; y < oh; y++) {
+        int fy = base_y + y * step_y;
+        fy = fy < 0 ? 0 : (fy > max_y ? max_y : fy);
+        const int y0 = fy >> 16;
+        const int y1 = std::min(y0 + 1, dh - 1);
+        const int wy = (fy >> 8) & 255;
+        const uint16_t* r0 = src + (size_t)y0 * dw;
+        const uint16_t* r1 = src + (size_t)y1 * dw;
+        uint16_t* d = dst + (size_t)(oy + y) * kLcdW + ox;
+
+        for (int x = 0; x < ow; x++) {
+            int fx = base_x + x * step_x;
+            fx = fx < 0 ? 0 : (fx > max_x ? max_x : fx);
+            const int x0 = fx >> 16;
+            const int x1 = std::min(x0 + 1, dw - 1);
+            const int wx = (fx >> 8) & 255;
+            const int p00 = r0[x0], p01 = r0[x1], p10 = r1[x0], p11 = r1[x1];
+
+            auto blend = [&](int shift, int mask) {
+                int top = ((p00 >> shift) & mask) * (256 - wx) + ((p01 >> shift) & mask) * wx;
+                int bot = ((p10 >> shift) & mask) * (256 - wx) + ((p11 >> shift) & mask) * wx;
+                return (top * (256 - wy) + bot * wy + 32768) >> 16;
+            };
+            d[x] = (uint16_t)((blend(11, 31) << 11) | (blend(5, 63) << 5) | blend(0, 31));
+        }
+    }
+}
+// END-RESAMPLE
+
 // Dải thử: 4 dải (xám, đỏ, xanh lá, xanh dương) x 16 bậc từ đen đến sáng nhất.
 static void FillTestPattern(uint8_t* buf) {
     uint16_t* px = reinterpret_cast<uint16_t*>(buf);
@@ -268,9 +336,10 @@ void TrafficCam::TaskEntry(void* arg) {
 
 void TrafficCam::Run() {
     jpeg_buf_ = AllocPsram(kMaxJpegBytes);
+    dec_buf_ = AllocPsram(kDecMaxPixels * 2);
     uint8_t* frames[2] = {AllocPsram(kLcdW * kLcdH * 2), AllocPsram(kLcdW * kLcdH * 2)};
 
-    if (!jpeg_buf_ || !frames[0] || !frames[1]) {
+    if (!jpeg_buf_ || !dec_buf_ || !frames[0] || !frames[1]) {
         ESP_LOGE(TAG, "Không đủ PSRAM");
     } else {
         int cur = 0;
@@ -319,6 +388,8 @@ void TrafficCam::Run() {
     HideOverlay();
     heap_caps_free(jpeg_buf_);
     jpeg_buf_ = nullptr;
+    heap_caps_free(dec_buf_);
+    dec_buf_ = nullptr;
     heap_caps_free(frames[0]);
     heap_caps_free(frames[1]);
 
@@ -404,22 +475,27 @@ bool TrafficCam::Decode(size_t jpeg_len, uint8_t* out, int* w, int* h) {
 
     static const esp_jpeg_image_scale_t kScales[] = {JPEG_IMAGE_SCALE_0, JPEG_IMAGE_SCALE_1_2,
                                                      JPEG_IMAGE_SCALE_1_4, JPEG_IMAGE_SCALE_1_8};
-    int pick = -1;
-    for (int s = 0; s < 4; s++) {
-        int sw = (info.width + (1 << s) - 1) >> s;
-        int sh = (info.height + (1 << s) - 1) >> s;
-        if (sw <= kLcdW && sh <= kLcdH) {
+    auto dim = [](int shift, int v) { return (v + (1 << shift) - 1) >> shift; };
+
+    // Chọn mức thu nhỏ lớn nhất mà ảnh giải mã vẫn >= màn hình (giữ độ nét),
+    // rồi thu thêm nếu vượt quá đệm giải mã.
+    int pick = 0;
+    for (int s = 3; s >= 0; s--) {
+        if (dim(s, info.width) >= kLcdW && dim(s, info.height) >= kLcdH) {
             pick = s;
             break;
         }
     }
-    if (pick < 0) {
+    while (pick < 3 && (size_t)dim(pick, info.width) * dim(pick, info.height) > kDecMaxPixels) {
+        pick++;
+    }
+    if ((size_t)dim(pick, info.width) * dim(pick, info.height) > kDecMaxPixels) {
         ESP_LOGW(TAG, "Ảnh %dx%d quá lớn", (int)info.width, (int)info.height);
         return false;
     }
 
-    cfg.outbuf = out;
-    cfg.outbuf_size = kLcdW * kLcdH * 2;
+    cfg.outbuf = dec_buf_;
+    cfg.outbuf_size = kDecMaxPixels * 2;
     cfg.out_format = JPEG_IMAGE_FORMAT_RGB565;
     cfg.out_scale = kScales[pick];
     cfg.flags.swap_color_bytes = 0;  // việc đổi byte làm trong BoostColors
@@ -429,11 +505,14 @@ bool TrafficCam::Decode(size_t jpeg_len, uint8_t* out, int* w, int* h) {
         ESP_LOGW(TAG, "Giải mã JPEG lỗi");
         return false;
     }
-    *w = res.width;
-    *h = res.height;
-    BoostColors(reinterpret_cast<uint16_t*>(out), (size_t)res.width * res.height);
-    ESP_LOGI(TAG, "Nguồn %dx%d -> %dx%d (thu nhỏ 1/%d)", (int)info.width, (int)info.height, *w, *h,
-             1 << pick);
+
+    uint16_t* out16 = reinterpret_cast<uint16_t*>(out);
+    ResampleToScreen(reinterpret_cast<const uint16_t*>(dec_buf_), res.width, res.height, out16);
+    BoostColors(out16, (size_t)kLcdW * kLcdH);
+    *w = kLcdW;
+    *h = kLcdH;
+    ESP_LOGI(TAG, "Nguồn %dx%d -> giải mã %dx%d (1/%d) -> màn %dx%d", (int)info.width,
+             (int)info.height, (int)res.width, (int)res.height, 1 << pick, kLcdW, kLcdH);
     return true;
 }
 

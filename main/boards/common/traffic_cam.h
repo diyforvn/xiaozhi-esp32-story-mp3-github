@@ -40,8 +40,9 @@ private:
     std::atomic<bool> refresh_now_{false};
 
     uint8_t* jpeg_buf_ = nullptr;  // chỉ task dùng
+    uint8_t* dec_buf_ = nullptr;   // đệm giải mã JPEG (trước khi phóng/thu về màn hình)
 
-
+    // LVGL (chỉ đụng vào khi đã giữ khóa display)
     lv_obj_t* overlay_ = nullptr;
     lv_obj_t* img_ = nullptr;
 #if LVGL_VERSION_MAJOR >= 9
@@ -50,3 +51,4 @@ private:
     lv_img_dsc_t dsc_{};
 #endif
 };
+

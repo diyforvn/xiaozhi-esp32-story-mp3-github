@@ -1034,6 +1034,12 @@ menu "MCP Tools"
         bool "Enable traffic camera tools"
         default y
 
+    config MCP_ENABLE_CRYPTO_TOOLS
+        bool "Enable cryptocurrency market tools"
+        default y
+        help
+            Enable MCP tools that fetch cryptocurrency prices and show them on the display.
+
     config MCP_ENABLE_PRESS_TO_TALK_TOOLS
         bool "Enable press-to-talk mode tool"
         default y
