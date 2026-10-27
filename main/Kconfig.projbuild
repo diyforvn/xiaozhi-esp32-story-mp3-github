@@ -733,6 +733,47 @@ choice DISPLAY_STYLE
             || BOARD_TYPE_ESP_SENSAIRSHUTTLE
 endchoice
 
+choice ROBOT_FACE_STYLE
+    prompt "Select face style"
+    depends on !USE_EMOTE_MESSAGE_STYLE
+    default FACE_STYLE_DEFAULT
+    help
+        Select the face shown on SPI LCD displays using LVGL.
+
+    config FACE_STYLE_DEFAULT
+        bool "Default face"
+
+    config FACE_STYLE_ROBOT_EYES
+        bool "Robot eyes"
+endchoice
+
+choice ROBOT_EYES_STYLE
+    prompt "Robot eyes appearance"
+    depends on FACE_STYLE_ROBOT_EYES && !USE_EMOTE_MESSAGE_STYLE
+    default ROBOT_EYES_TERMINATOR
+    help
+        Choose one animation and image set for the robot eyes display.
+
+    config ROBOT_EYES_TERMINATOR
+        bool "Terminator (red robot)"
+    config ROBOT_EYES_CAT
+        bool "Cat"
+    config ROBOT_EYES_DEFAULT
+        bool "Human"
+    config ROBOT_EYES_DRAGON
+        bool "Dragon"
+    config ROBOT_EYES_GOAT
+        bool "Goat"
+    config ROBOT_EYES_NAUGA
+        bool "Nauga"
+    config ROBOT_EYES_NEWT
+        bool "Newt"
+    config ROBOT_EYES_NOSCLERA
+        bool "No sclera"
+    config ROBOT_EYES_OWL
+        bool "Owl"
+endchoice
+
 config USE_MULTILINE_CHAT_MESSAGE
     bool "Use multiline chat message display (default mode only)"
     depends on USE_DEFAULT_MESSAGE_STYLE

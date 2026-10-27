@@ -107,7 +107,7 @@ private:
         ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y));
         ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel, DISPLAY_INVERT_COLOR));
 
-        display_ = new SpiLcdDisplay(panel_io, panel,
+        display_ = CreateSpiLcdDisplay(panel_io, panel,
                                      DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
     }
 
@@ -140,7 +140,7 @@ private:
         ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel, 0, 34));
         ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, true, false));
         ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel, true));
-        display_ = new SpiLcdDisplay(panel_io, panel,
+        display_ = CreateSpiLcdDisplay(panel_io, panel,
                                      DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
     }
 

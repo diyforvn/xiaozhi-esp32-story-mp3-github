@@ -15,6 +15,7 @@ set(SOURCES "audio/audio_codec.cc"
             "led/gpio_led.cc"
             "display/display.cc"
             "display/lcd_display.cc"
+            "display/lcd_display_factory.cc"
             "display/oled_display.cc"
             "display/lvgl_display/lvgl_display.cc"
             "display/emote_display.cc"
@@ -38,6 +39,35 @@ set(SOURCES "audio/audio_codec.cc"
             "assets.cc"
             "main.cc"
             )
+
+if(CONFIG_FACE_STYLE_ROBOT_EYES AND NOT CONFIG_USE_EMOTE_MESSAGE_STYLE)
+    list(APPEND SOURCES
+        "boards/common/robot_eyes/eyes_display.cc"
+        "boards/common/robot_eyes/eyes_render.cc"
+    )
+
+    # The eye image headers define shared global symbols; select exactly one
+    # style at configure time. Terminator is the backwards-compatible default.
+    if(CONFIG_ROBOT_EYES_CAT)
+        add_compile_definitions(EYES_STYLE_CAT)
+    elseif(CONFIG_ROBOT_EYES_DEFAULT)
+        add_compile_definitions(EYES_STYLE_DEFAULT)
+    elseif(CONFIG_ROBOT_EYES_DRAGON)
+        add_compile_definitions(EYES_STYLE_DRAGON)
+    elseif(CONFIG_ROBOT_EYES_GOAT)
+        add_compile_definitions(EYES_STYLE_GOAT)
+    elseif(CONFIG_ROBOT_EYES_NAUGA)
+        add_compile_definitions(EYES_STYLE_NAUGA)
+    elseif(CONFIG_ROBOT_EYES_NEWT)
+        add_compile_definitions(EYES_STYLE_NEWT)
+    elseif(CONFIG_ROBOT_EYES_NOSCLERA)
+        add_compile_definitions(EYES_STYLE_NOSCLERA)
+    elseif(CONFIG_ROBOT_EYES_OWL)
+        add_compile_definitions(EYES_STYLE_OWL)
+    else()
+        add_compile_definitions(EYES_STYLE_TERMINATOR)
+    endif()
+endif()
 
 set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols")
 

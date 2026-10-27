@@ -359,7 +359,7 @@ private:
 
         ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
 
-        display_ = new SpiLcdDisplay(panel_io, panel,
+        display_ = CreateSpiLcdDisplay(panel_io, panel,
                                     DISPLAY_WIDTH, DISPLAY_HEIGHT, config.offset_x, config.offset_y, config.mirror_x, config.mirror_y, config.swap_xy);
     }
 

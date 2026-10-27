@@ -76,7 +76,7 @@ private:
         ESP_ERROR_CHECK(esp_lcd_panel_invert_color(disp_panel, true));
         esp_lcd_panel_disp_on_off(disp_panel, true);
         ESP_ERROR_CHECK(esp_lcd_panel_mirror(disp_panel, true, false));
-        display_ = new SpiLcdDisplay(io, disp_panel, DISPLAY_WIDTH, DISPLAY_HEIGHT,
+        display_ = CreateSpiLcdDisplay(io, disp_panel, DISPLAY_WIDTH, DISPLAY_HEIGHT,
                                      DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
     }
     void InitializeTouch()

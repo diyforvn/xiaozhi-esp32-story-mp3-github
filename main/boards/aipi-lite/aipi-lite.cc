@@ -125,7 +125,7 @@ class AIPILite : public WifiBoard {
         esp_lcd_panel_invert_color(panel_, DISPLAY_INVERT_COLOR);
         esp_lcd_panel_swap_xy(panel_, DISPLAY_SWAP_XY);
         esp_lcd_panel_mirror(panel_, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
-        display_ = new SpiLcdDisplay(panel_io, panel_, DISPLAY_WIDTH,
+        display_ = CreateSpiLcdDisplay(panel_io, panel_, DISPLAY_WIDTH,
                                      DISPLAY_HEIGHT, DISPLAY_OFFSET_X,
                                      DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X,
                                      DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);

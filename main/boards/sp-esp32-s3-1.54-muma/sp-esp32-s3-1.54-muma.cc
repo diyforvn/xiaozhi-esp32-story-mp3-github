@@ -243,7 +243,7 @@ private:
         uint8_t data_0xBB[] = { 0x38 };
         esp_lcd_panel_io_tx_param(panel_io, 0xBB, data_0xBB, sizeof(data_0xBB));
 
-        display_ = new SpiLcdDisplay(panel_io, panel,
+        display_ = CreateSpiLcdDisplay(panel_io, panel,
                                      DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
     }
 

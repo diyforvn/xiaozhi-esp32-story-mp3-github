@@ -274,7 +274,7 @@ private:
 #ifdef CONFIG_USE_EMOTE_MESSAGE_STYLE
         display_ = new emote::EmoteDisplay(panel, panel_io, DISPLAY_WIDTH, DISPLAY_HEIGHT);
 #else
-        display_ = new SpiLcdDisplay(panel_io, panel,
+        display_ = CreateSpiLcdDisplay(panel_io, panel,
             DISPLAY_WIDTH, DISPLAY_HEIGHT, 0, 0, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
 #endif
 
