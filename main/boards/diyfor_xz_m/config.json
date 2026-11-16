@@ -1,0 +1,21 @@
+{
+    "target": "esp32s3",
+    "builds": [
+        {
+            "name": "diyfor_xz_m-oled",
+            "sdkconfig_append": [
+                "CONFIG_DIYFOR_XZ_M_DISPLAY_OLED=y",
+                "CONFIG_OLED_SSD1306_128X32=y",
+                "CONFIG_DIYFOR_XZ_M_MIC_LEFT=y"
+            ]
+        },
+        {
+            "name": "diyfor_xz_m-lcd",
+            "sdkconfig_append": [
+                "CONFIG_DIYFOR_XZ_M_DISPLAY_LCD=y",
+                "CONFIG_LCD_ST7789_240X320=y",
+                "CONFIG_DIYFOR_XZ_M_MIC_LEFT=y"
+            ]
+        }
+    ]
+}

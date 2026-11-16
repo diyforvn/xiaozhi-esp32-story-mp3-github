@@ -10,6 +10,7 @@
 class NoAudioCodec : public AudioCodec {
 protected:
     std::mutex data_if_mutex_;
+    bool mic_stereo_ = false;
 
     virtual int Write(const int16_t* data, int samples) override;
     virtual int Read(int16_t* dest, int samples) override;
@@ -22,7 +23,7 @@ public:
 
 class NoAudioCodecDuplex : public NoAudioCodec {
 public:
-    NoAudioCodecDuplex(int input_sample_rate, int output_sample_rate, gpio_num_t bclk, gpio_num_t ws, gpio_num_t dout, gpio_num_t din);
+    NoAudioCodecDuplex(int input_sample_rate, int output_sample_rate, gpio_num_t bclk, gpio_num_t ws, gpio_num_t dout, gpio_num_t din, i2s_std_slot_mask_t mic_slot_mask = I2S_STD_SLOT_LEFT);
 };
 
 class NoAudioCodecSimplex : public NoAudioCodec {

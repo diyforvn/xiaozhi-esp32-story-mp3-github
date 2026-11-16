@@ -30,7 +30,12 @@
 
 #define BUILTIN_LED_GPIO        GPIO_NUM_48
 #define BOOT_BUTTON_GPIO        GPIO_NUM_0
+#ifdef CONFIG_ROBOT_BASE_ENABLE
+// GPIO47 drives the robot head servo, so the touch button is disabled
+#define TOUCH_BUTTON_GPIO       GPIO_NUM_NC
+#else
 #define TOUCH_BUTTON_GPIO       GPIO_NUM_47
+#endif
 #define VOLUME_UP_BUTTON_GPIO   GPIO_NUM_4
 #define VOLUME_DOWN_BUTTON_GPIO GPIO_NUM_5
 

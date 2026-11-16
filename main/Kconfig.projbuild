@@ -128,6 +128,9 @@ choice BOARD_TYPE
     config BOARD_TYPE_BREAD_COMPACT_WIFI_LCD
         bool "Bread Compact WiFi + LCD (面包板)"
         depends on IDF_TARGET_ESP32S3
+    config BOARD_TYPE_DIYFOR_XZ_M
+        bool "DIYfor XZ M (Compact WiFi + LCD)"
+        depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_BREAD_COMPACT_WIFI_CAM
         bool "Bread Compact WiFi + LCD + Camera (面包板)"
         depends on IDF_TARGET_ESP32S3
@@ -604,8 +607,34 @@ choice ESP_S3_LCD_EV_Board_Version_TYPE
         bool "乐鑫ESP32_S3_LCD_EV_Board-MB_V1.5"
 endchoice
 
+choice DIYFOR_XZ_M_DISPLAY
+    depends on BOARD_TYPE_DIYFOR_XZ_M
+    prompt "DIYfor XZ M Display"
+    default DIYFOR_XZ_M_DISPLAY_OLED
+    help
+        Select the display connected to the DIYfor XZ M board.
+    config DIYFOR_XZ_M_DISPLAY_OLED
+        bool "OLED (Compact WiFi GPIO)"
+    config DIYFOR_XZ_M_DISPLAY_LCD
+        bool "SPI LCD (Compact WiFi LCD GPIO)"
+endchoice
+
+choice DIYFOR_XZ_M_MIC_SLOT
+    depends on BOARD_TYPE_DIYFOR_XZ_M
+    prompt "DIYfor XZ M I2S Microphone Channel"
+    default DIYFOR_XZ_M_MIC_LEFT
+    help
+        Select which I2S slot(s) carry microphone data. Both slots are downmixed to mono.
+    config DIYFOR_XZ_M_MIC_LEFT
+        bool "Left"
+    config DIYFOR_XZ_M_MIC_RIGHT
+        bool "Right"
+    config DIYFOR_XZ_M_MIC_BOTH
+        bool "Both (downmix to mono)"
+endchoice
+
 choice DISPLAY_OLED_TYPE
-    depends on BOARD_TYPE_BREAD_COMPACT_WIFI || BOARD_TYPE_BREAD_COMPACT_ML307 || BOARD_TYPE_BREAD_COMPACT_NT26 || BOARD_TYPE_BREAD_COMPACT_ESP32 || BOARD_TYPE_HU_087
+    depends on BOARD_TYPE_BREAD_COMPACT_WIFI || BOARD_TYPE_BREAD_COMPACT_ML307 || BOARD_TYPE_BREAD_COMPACT_NT26 || BOARD_TYPE_BREAD_COMPACT_ESP32 || BOARD_TYPE_HU_087 || (BOARD_TYPE_DIYFOR_XZ_M && DIYFOR_XZ_M_DISPLAY_OLED)
     prompt "OLED Type"
     default OLED_SSD1306_128X32
     help
@@ -619,7 +648,7 @@ choice DISPLAY_OLED_TYPE
 endchoice
 
 choice DISPLAY_LCD_TYPE
-    depends on BOARD_TYPE_BREAD_COMPACT_WIFI_LCD || BOARD_TYPE_BREAD_COMPACT_ESP32_LCD || BOARD_TYPE_CGC || BOARD_TYPE_BREAD_COMPACT_WIFI_CAM
+    depends on BOARD_TYPE_BREAD_COMPACT_WIFI_LCD || BOARD_TYPE_BREAD_COMPACT_ESP32_LCD || BOARD_TYPE_CGC || BOARD_TYPE_BREAD_COMPACT_WIFI_CAM || (BOARD_TYPE_DIYFOR_XZ_M && DIYFOR_XZ_M_DISPLAY_LCD)
     prompt "LCD Type"
     default LCD_ST7789_240X320
     help
@@ -735,7 +764,7 @@ endchoice
 
 choice ROBOT_FACE_STYLE
     prompt "Select face style"
-    depends on !USE_EMOTE_MESSAGE_STYLE
+    depends on !USE_EMOTE_MESSAGE_STYLE && !(BOARD_TYPE_BREAD_COMPACT_WIFI || BOARD_TYPE_BREAD_COMPACT_ML307 || BOARD_TYPE_BREAD_COMPACT_NT26 || BOARD_TYPE_BREAD_COMPACT_ESP32 || BOARD_TYPE_HU_087) && !(BOARD_TYPE_DIYFOR_XZ_M && DIYFOR_XZ_M_DISPLAY_OLED)
     default FACE_STYLE_DEFAULT
     help
         Select the face shown on SPI LCD displays using LVGL.
@@ -1064,7 +1093,7 @@ menu "MCP Tools"
             require changes to this menu when adding another board tool.
 
     config MCP_ENABLE_ALARM_TOOLS
-        bool "Enable alarm and reminder tools"
+        bool "Enable schedule tools (alarm and reminder aliases)"
         default y
 
     config MCP_ENABLE_SCENE_TOOLS
@@ -1157,6 +1186,195 @@ menu "MCP Tools"
             directly from the device over HTTPS, with no backend content filtering.
             Intended for engineering tests only. Do not enable for child-facing
             educational deployments without a moderation layer in front of it. 
+endmenu
+
+menu "Robot Base (2 wheels + laser guard + head servo)"
+
+    config ROBOT_BASE_ENABLE
+        bool "Enable robot base (DRV8833 wheels, VL53L0X laser, SG90 head)"
+        default n
+        depends on BOARD_TYPE_BREAD_COMPACT_WIFI || BOARD_TYPE_BREAD_COMPACT_WIFI_LCD || BOARD_TYPE_DIYFOR_XZ_M
+        help
+            Turns xiaozhi into a small robot that moves with its emotions and avoids
+            obstacles / table edges with a forward-down VL53L0X laser.
+            Works with both the OLED (Mochi face) and the TFT (robot eyes) display.
+
+    if ROBOT_BASE_ENABLE
+
+        menu "Pins"
+            config ROBOT_PIN_MOTOR_L_IN1
+                int "Left wheel DRV8833 IN1 (GPIO)"
+                range 0 48
+                default 39
+            config ROBOT_PIN_MOTOR_L_IN2
+                int "Left wheel DRV8833 IN2 (GPIO)"
+                range 0 48
+                default 40
+            config ROBOT_PIN_MOTOR_R_IN1
+                int "Right wheel DRV8833 IN1 (GPIO)"
+                range 0 48
+                default 41
+            config ROBOT_PIN_MOTOR_R_IN2
+                int "Right wheel DRV8833 IN2 (GPIO)"
+                range 0 48
+                default 42
+            config ROBOT_PIN_SERVO
+                int "Head servo signal (GPIO)"
+                range 0 48
+                default 47
+            config ROBOT_PIN_TOF_INT
+                int "VL53L0X INT / GPIO1 (GPIO)"
+                range 0 48
+                default 38
+            config ROBOT_I2C_SDA
+                int "I2C SDA for the VL53L0X (LCD build only; the OLED build reuses the OLED bus)"
+                range 0 48
+                default 1
+                depends on BOARD_TYPE_BREAD_COMPACT_WIFI_LCD || (BOARD_TYPE_DIYFOR_XZ_M && DIYFOR_XZ_M_DISPLAY_LCD)
+            config ROBOT_I2C_SCL
+                int "I2C SCL for the VL53L0X (LCD build only; the OLED build reuses the OLED bus)"
+                range 0 48
+                default 2
+                depends on BOARD_TYPE_BREAD_COMPACT_WIFI_LCD || (BOARD_TYPE_DIYFOR_XZ_M && DIYFOR_XZ_M_DISPLAY_LCD)
+        endmenu
+
+        menu "Wheels"
+            config ROBOT_MOTOR_L_INVERT
+                bool "Invert left wheel direction"
+                default n
+            config ROBOT_MOTOR_R_INVERT
+                bool "Invert right wheel direction"
+                default n
+            config ROBOT_MOTOR_MIN_START_PCT
+                int "Minimum PWM duty (%) at the lowest speed (overcomes stiction)"
+                range 0 90
+                default 75
+            config ROBOT_MOTOR_MAX_PCT
+                int "Maximum PWM duty (%) (protects motors on a 2S pack)"
+                range 20 100
+                default 70
+        endmenu
+
+        menu "Laser guard"
+            config ROBOT_VL53L0X_ENABLE
+                bool "Enable VL53L0X obstacle / cliff safety sensor"
+                default y
+                help
+                    When enabled, the laser sensor must initialize and provide fresh readings
+                    before movement is allowed. When disabled, its obstacle and cliff checks are skipped.
+            config ROBOT_CLIFF_MM
+                int "Cliff threshold (mm): reading above this = drop / table edge"
+                range 60 1000
+                default 150
+            config ROBOT_OBSTACLE_MARGIN_MM
+                int "Obstacle margin (mm): reading below (floor - margin) = obstacle"
+                range 10 100
+                default 30
+        endmenu
+
+        menu "BMI160 motion sensor"
+            config ROBOT_BMI160_ENABLE
+                bool "Enable BMI160 lift / tilt detection"
+                default y
+                help
+                    Uses the BMI160 accelerometer on the same I2C bus as the VL53L0X.
+                    When enabled, movement is locked unless the BMI160 initializes, provides fresh
+                    samples, and completes orientation calibration. Disable this option to skip IMU checks.
+            if ROBOT_BMI160_ENABLE
+                choice ROBOT_BMI160_ADDRESS
+                    prompt "BMI160 I2C address"
+                    default ROBOT_BMI160_ADDRESS_68
+                    config ROBOT_BMI160_ADDRESS_68
+                        bool "0x68"
+                    config ROBOT_BMI160_ADDRESS_69
+                        bool "0x69"
+                endchoice
+                choice ROBOT_BMI160_FORWARD_AXIS
+                    prompt "Sensor axis aligned with robot forward"
+                    default ROBOT_BMI160_FORWARD_X
+                    config ROBOT_BMI160_FORWARD_X
+                        bool "X axis"
+                    config ROBOT_BMI160_FORWARD_Y
+                        bool "Y axis"
+                endchoice
+                config ROBOT_BMI160_FORWARD_INVERT
+                    bool "Invert the forward axis direction"
+                    default n
+                    help
+                        Enable when a forward tilt reports as backward after calibration.
+                config ROBOT_BMI160_LIFT_TILT_DEG
+                    int "Tilt angle that counts as a lift (degrees)"
+                    range 20 60
+                    default 30
+                config ROBOT_BMI160_RELEASE_IMPACT_MG
+                    int "Set-down acceleration threshold (mg)"
+                    range 1000 2500
+                    default 1200
+                    help
+                        Lower values detect gentler set-downs but may treat movement while held as a set-down.
+                config ROBOT_BMI160_RELEASE_DELTA_MG
+                    int "Set-down acceleration change threshold (mg per sample)"
+                    range 100 1000
+                    default 350
+                    help
+                        Lower values detect gentler set-downs but can cause false release while carrying the robot.
+            endif
+        endmenu
+
+        menu "Head servo"
+            config ROBOT_HEAD_CENTER_DEG
+                int "Servo angle (deg) when the head is level"
+                range 0 180
+                default 90
+            config ROBOT_HEAD_RANGE_DEG
+                int "Servo travel (deg) for pose +-100"
+                range 5 90
+                default 35
+            config ROBOT_HEAD_INVERT
+                bool "Invert head direction (use if 'up' moves the head down)"
+                default n
+            config ROBOT_SERVO_MIN_US
+                int "Servo pulse at 0 deg (us)"
+                range 400 1000
+                default 500
+            config ROBOT_SERVO_MAX_US
+                int "Servo pulse at 180 deg (us)"
+                range 2000 2600
+                default 2400
+        endmenu
+
+        menu "Behavior"
+            config ROBOT_WANDER_ENABLE
+                bool "Wander (drive / spin randomly) while idle"
+                default y
+            config ROBOT_STOP_WHEN_LISTENING
+                bool "Keep emotion behaviors silent while listening (manual and wander can still move)"
+                default y
+                help
+                    Explicit self.robot.move commands and enabled free wandering may move
+                    while listening. Motor noise can affect microphone recognition.
+            config ROBOT_BLIND_REVERSE
+                bool "Allow reversing (there is no rear sensor!)"
+                default y
+                help
+                    Sad / sleepy / reflex moves back up a little. Without a rear sensor the
+                    robot can reverse off a table edge. Short caps are enforced, but turn this
+                    off for table-top use if you have no rear protection.
+            config ROBOT_REVERSE_MAX_MS
+                int "Longest continuous reverse (ms)"
+                range 200 3000
+                default 700
+            config ROBOT_EMOTION_MAX_SEC
+                int "An emotion behavior falls back to neutral after (s)"
+                range 5 600
+                default 90
+            config ROBOT_FACE_REACTION
+                bool "Show surprised/shocked face when the laser guard reacts"
+                default y
+        endmenu
+
+    endif # ROBOT_BASE_ENABLE
+
 endmenu
 
 endmenu

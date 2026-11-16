@@ -73,6 +73,8 @@ public:
     virtual void SendStopListening();
     virtual void SendAbortSpeaking(AbortReason reason);
     virtual void SendMcpMessage(const std::string& message);
+    // Ask the connected backend to synthesize and stream a spoken reminder.
+    virtual bool SendAlarmNotification(uint32_t alarm_id, const std::string& text);
 
 protected:
     std::function<void(const cJSON* root)> on_incoming_json_;

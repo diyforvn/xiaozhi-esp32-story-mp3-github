@@ -69,7 +69,23 @@ if(CONFIG_FACE_STYLE_ROBOT_EYES AND NOT CONFIG_USE_EMOTE_MESSAGE_STYLE)
     endif()
 endif()
 
-set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols")
+if(CONFIG_ROBOT_BASE_ENABLE)
+    # Robot base: DRV8833 wheels + VL53L0X laser guard + SG90 head servo
+    list(APPEND SOURCES
+        "robot_base/robot_logic.cc"
+        "robot_base/bmi160_motion.cc"
+        "robot_base/robot_behaviors.cc"
+        "robot_base/robot_controller.cc"
+        "robot_base/vl53l0x.cc"
+        "robot_base/motor_driver.cc"
+        "robot_base/head_servo.cc"
+        "robot_base/range_guard.cc"
+        "robot_base/robot_base.cc"
+    )
+endif()
+
+set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols"
+                  "automation/schedule" "automation/scene/include")
 
 # Add board common files
 list(APPEND SOURCES
@@ -94,12 +110,12 @@ list(APPEND SOURCES
     "boards/common/system_reset.cc"
     "boards/common/mochi_display.cc"
     "boards/common/wikipedia_tool.cc" 
-    "alarm/alarm_manager.cc"
-    "alarm/alarm_storage.cc"
-    "alarm/scheduler_task.cc"
-    "alarm/alarm_event_processor.cc"
-    "alarm/alarm_mcp_tools.cc"
-    "alarm/alarm_integration.cc"
+    "automation/automation_integration.cc"
+    "automation/schedule/automation_schedule_manager.cc"
+    "automation/schedule/legacy_alarm_storage.cc"
+    "automation/scene/src/scene_manager.cc"
+    "automation/scene/src/scene_mcp_tools.cc"
+    "automation/scene/src/scene_storage.cc"
 )
 if(CONFIG_MCP_ENABLE_TRAFFIC_CAM_TOOLS)
     list(APPEND SOURCES "boards/common/traffic_cam.cc")
@@ -149,6 +165,16 @@ if(CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI)
     set(BOARD_TYPE "bread-compact-wifi")
     set(BUILTIN_TEXT_FONT font_puhui_basic_14_1)
     set(BUILTIN_ICON_FONT font_awesome_14_1)
+elseif(CONFIG_BOARD_TYPE_DIYFOR_XZ_M)
+    set(BOARD_TYPE "diyfor_xz_m")
+    if(CONFIG_DIYFOR_XZ_M_DISPLAY_LCD)
+        set(BUILTIN_TEXT_FONT font_puhui_basic_16_4)
+        set(BUILTIN_ICON_FONT font_awesome_16_4)
+        set(DEFAULT_EMOJI_COLLECTION twemoji_32)
+    else()
+        set(BUILTIN_TEXT_FONT font_puhui_basic_14_1)
+        set(BUILTIN_ICON_FONT font_awesome_14_1)
+    endif()
 elseif(CONFIG_BOARD_TYPE_BREAD_COMPACT_ML307)
     set(BOARD_TYPE "bread-compact-ml307")
     set(BUILTIN_TEXT_FONT font_puhui_basic_14_1)
@@ -1126,8 +1152,8 @@ idf_component_register(SRCS ${SOURCES}
                         mbedtls
                         esp-tls
                         ${MAIN_PRIV_REQUIRES_EXTRA}
-                        nvs_flash      # AlarmStorage dùng NVS
-                        esp_timer      # SchedulerTask dùng esp_timer
+                        nvs_flash      # Automation schedules persist in NVS
+                        esp_timer      # Existing application timers
                         lwip           # esp_sntp cần lwip (thường đã có sẵn qua wifi)
                         json           # cJSON — trong ESP-IDF là component "json"
                     )

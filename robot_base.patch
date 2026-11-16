@@ -1,0 +1,3683 @@
+diff --git a/docs/ROBOT_BASE.md b/docs/ROBOT_BASE.md
+new file mode 100644
+index 0000000..806b509
+--- /dev/null
++++ b/docs/ROBOT_BASE.md
+@@ -0,0 +1,76 @@
++# Robot base cho xiaozhi (2 bánh + laser VL53L0X + servo đầu)
++
++Chạy với cả bản **OLED (mặt Mochi)** và bản **TFT LCD (mắt robot)**. Phần chuyển động bám theo chuỗi cảm xúc mà xiaozhi đã gửi cho màn hình, nên không phải sửa lớp hiển thị.
++
++## 1. Đấu nối (mặc định, đổi được trong menuconfig)
++
++| Linh kiện | Chân | Ghi chú |
++|---|---|---|
++| DRV8833 bánh trái IN1 / IN2 | GPIO39 / GPIO40 | đảo chiều bánh bằng `ROBOT_MOTOR_L_INVERT` |
++| DRV8833 bánh phải IN1 / IN2 | GPIO41 / GPIO42 | đảo chiều bánh bằng `ROBOT_MOTOR_R_INVERT` |
++| Servo SG90 (tín hiệu) | GPIO47 | nguồn 5V riêng, **nối chung GND** với ESP32 |
++| VL53L0X SDA / SCL | GPIO1 / GPIO2 | bản OLED dùng chung bus OLED; bản LCD tự tạo bus |
++| VL53L0X INT (GPIO1 của module) | GPIO38 | ngắt "có mẫu đo mới" |
++
++Lưu ý phần cứng:
++- DRV8833: chân **nSLEEP phải nối lên mức cao** (3.3V), nếu không motor không chạy.
++- Thêm điện trở kéo xuống 10k cho 4 chân IN để motor không giật khi ESP32 khởi động.
++- Pin 2S 8.4V nằm trong giới hạn DRV8833 (tối đa 10.8V). Giới hạn duty tối đa mặc định 70% để bảo vệ motor; chỉnh theo điện áp định mức của motor.
++- Cấp nguồn servo và motor tách khỏi nguồn ESP32/mic nếu có thể (sụt áp gây reset và nhiễu mic).
++- Bản OLED: `TOUCH_BUTTON_GPIO` (GPIO47) bị tắt vì trùng chân servo. Bản LCD: không còn đèn `LAMP` trên GPIO38 vì trùng chân INT.
++
++## 2. Bật tính năng
++
++```
++idf.py menuconfig
++  Xiaozhi Assistant -> Robot Base (2 wheels + laser guard + head servo) -> Enable robot base
++idf.py build flash monitor
++```
++
++## 3. Lần chạy đầu (làm đúng thứ tự)
++
++1. **Nhấc robot khỏi mặt bàn**, nạp firmware, xem log `RobotMotor`, `RobotHead`, `RobotRange` báo ready.
++2. Gọi tool `self.robot.head` thử servo; nếu đầu "ngẩng" lại thành cúi thì bật `ROBOT_HEAD_INVERT`. Chỉnh `ROBOT_HEAD_CENTER_DEG` / `ROBOT_HEAD_RANGE_DEG` cho đúng cơ khí.
++3. Gọi `self.robot.move` (bánh chạm đất, **trên sàn nhà**, không phải bàn): nếu bánh quay ngược thì bật `ROBOT_MOTOR_*_INVERT`.
++4. Đặt robot trên **sàn phẳng**, bật nguồn: cảm biến tự đo khoảng cách sàn (log `floor calibrated: ... mm`). Đo lại bất cứ lúc nào bằng tool `self.robot.calibrate_floor`.
++5. Thử vật cản và mép bàn trên sàn (dùng một cạnh bậc thấp) trước khi cho chạy trên bàn.
++
++## 4. Hành vi
++
++- **Vui**: xoay tròn đến khi đổi cảm xúc, đầu lắc lư; thỉnh thoảng nhảy tới/lùi ngắn.
++- **Buồn**: lùi chậm (có giới hạn), đầu gập xuống, dừng "thở dài".
++- **Giận**: tiến từ từ, đầu ngẩng thách thức, dừng nhìn trừng, gằm đầu, quay dậm chân.
++- **Buồn ngủ**: đi qua lại chậm, đầu gật gù.
++- Bổ sung: laughing, silly/funny, crying, surprised/shocked, confused, embarrassed, loving/kissy, thinking, cool/confident, relaxed, winking, delicious. Sửa bảng ở `main/robot_base/robot_behaviors.cc`.
++- **Rảnh (idle)**: đi tới, rẽ, xoay tròn ngẫu nhiên, lắc lư lùi tiến, nhìn quanh, xen kẽ nghỉ 1.5–4.5 giây.
++- Khi `neutral` (xiaozhi về idle) thì kết thúc cảm xúc và quay lại đi lang thang. Mỗi cảm xúc tự về neutral sau `ROBOT_EMOTION_MAX_SEC` giây.
++- Khi thiết bị đang **listening**, bánh xe im lặng (đầu vẫn cử động) để motor không làm nhiễu mic.
++
++## 5. An toàn (laser)
++
++- Đọc > 150mm (hoặc không có phản xạ) = **mép bàn/hố sụt**. Đọc ngắn hơn (khoảng cách sàn đã đo − 30mm) = **vật cản**.
++- Cần 2 mẫu liên tiếp mới vào trạng thái nguy hiểm (khoảng 45ms), 3 mẫu sạch mới thoát.
++- Ngắt phần cứng ngay trong tác vụ cảm biến: cắt thành phần tiến của bánh xe, không chờ vòng điều khiển.
++- Gặp nguy hiểm khi đang tiến thì lùi tối đa ~0.4s rồi quay hướng ngẫu nhiên, cảm xúc nào cũng vậy. Lặp 6 lần trong 20s thì "kẹt": đứng yên 15s, mặt bối rối.
++- Cảm biến hỏng hoặc không có: **bánh xe bị khóa** (đầu vẫn chạy). Chỉ bật `ROBOT_ALLOW_NO_SENSOR` khi thử trên bàn làm việc.
++- Chưa hiệu chuẩn sàn thì chỉ có phát hiện mép (tuyệt đối 150mm), chưa có phát hiện vật cản.
++
++**Giới hạn đã biết**
++- **Không có cảm biến phía sau**: lùi là "mù". Có giới hạn 0.7s liên tục và ngân sách lùi mỗi cảm xúc, nhưng vẫn có thể rơi khỏi bàn khi lùi. Cân nhắc thêm cảm biến sau hoặc công tắc, hoặc tắt `ROBOT_BLIND_REVERSE` khi chạy trên bàn.
++- Mặt bàn đen, bóng, trong suốt làm VL53L0X đo sai; bàn đen có thể bị hiểu nhầm là hố sụt (robot sẽ dừng, an toàn nhưng khó chịu).
++- Vật rất thấp (vài mm) không bị phát hiện.
++- Bản OLED: bus I2C dùng chung, một lần đẩy khung hình OLED có thể làm trễ một mẫu laser khoảng 25ms.
++
++## 6. Công cụ MCP cho LLM
++
++`self.robot.get_status`, `self.robot.move`, `self.robot.stop`, `self.robot.head`, `self.robot.perform`, `self.robot.set_wander`, `self.robot.calibrate_floor`.
++
++## 7. Kiểm thử
++
++`tests/test_robot.cc` kiểm tra logic (phân loại nguy hiểm, bảng hành vi, an toàn) trên máy tính, không cần ESP32:
++
++```
++g++ -std=c++17 -Imain/robot_base tests/test_robot.cc main/robot_base/robot_logic.cc main/robot_base/robot_behaviors.cc main/robot_base/robot_controller.cc -o t && ./t
++```
++
++Giấy phép: `vl53l0x.cc/.h` là bản port thư viện Pololu VL53L0X (MIT), xem `main/robot_base/VL53L0X_LICENSE.txt`.
+diff --git a/main/CMakeLists.txt b/main/CMakeLists.txt
+index 4ba974d..cbbfcf0 100644
+--- a/main/CMakeLists.txt
++++ b/main/CMakeLists.txt
+@@ -69,6 +69,20 @@ if(CONFIG_FACE_STYLE_ROBOT_EYES AND NOT CONFIG_USE_EMOTE_MESSAGE_STYLE)
+     endif()
+ endif()
+ 
++if(CONFIG_ROBOT_BASE_ENABLE)
++    # Robot base: DRV8833 wheels + VL53L0X laser guard + SG90 head servo
++    list(APPEND SOURCES
++        "robot_base/robot_logic.cc"
++        "robot_base/robot_behaviors.cc"
++        "robot_base/robot_controller.cc"
++        "robot_base/vl53l0x.cc"
++        "robot_base/motor_driver.cc"
++        "robot_base/head_servo.cc"
++        "robot_base/range_guard.cc"
++        "robot_base/robot_base.cc"
++    )
++endif()
++
+ set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols")
+ 
+ # Add board common files
+diff --git a/main/Kconfig.projbuild b/main/Kconfig.projbuild
+index 42b32f2..a206604 100644
+--- a/main/Kconfig.projbuild
++++ b/main/Kconfig.projbuild
+@@ -1159,4 +1159,141 @@ menu "MCP Tools"
+             educational deployments without a moderation layer in front of it. 
+ endmenu
+ 
++menu "Robot Base (2 wheels + laser guard + head servo)"
++
++    config ROBOT_BASE_ENABLE
++        bool "Enable robot base (DRV8833 wheels, VL53L0X laser, SG90 head)"
++        default n
++        depends on BOARD_TYPE_BREAD_COMPACT_WIFI || BOARD_TYPE_BREAD_COMPACT_WIFI_LCD
++        help
++            Turns xiaozhi into a small robot that moves with its emotions and avoids
++            obstacles / table edges with a forward-down VL53L0X laser.
++            Works with both the OLED (Mochi face) and the TFT (robot eyes) display.
++
++    if ROBOT_BASE_ENABLE
++
++        menu "Pins"
++            config ROBOT_PIN_MOTOR_L_IN1
++                int "Left wheel DRV8833 IN1 (GPIO)"
++                range 0 48
++                default 39
++            config ROBOT_PIN_MOTOR_L_IN2
++                int "Left wheel DRV8833 IN2 (GPIO)"
++                range 0 48
++                default 40
++            config ROBOT_PIN_MOTOR_R_IN1
++                int "Right wheel DRV8833 IN1 (GPIO)"
++                range 0 48
++                default 41
++            config ROBOT_PIN_MOTOR_R_IN2
++                int "Right wheel DRV8833 IN2 (GPIO)"
++                range 0 48
++                default 42
++            config ROBOT_PIN_SERVO
++                int "Head servo signal (GPIO)"
++                range 0 48
++                default 47
++            config ROBOT_PIN_TOF_INT
++                int "VL53L0X INT / GPIO1 (GPIO)"
++                range 0 48
++                default 38
++            config ROBOT_I2C_SDA
++                int "I2C SDA (only used on the LCD build, which has no OLED bus)"
++                range 0 48
++                default 1
++            config ROBOT_I2C_SCL
++                int "I2C SCL (only used on the LCD build, which has no OLED bus)"
++                range 0 48
++                default 2
++        endmenu
++
++        menu "Wheels"
++            config ROBOT_MOTOR_L_INVERT
++                bool "Invert left wheel direction"
++                default n
++            config ROBOT_MOTOR_R_INVERT
++                bool "Invert right wheel direction"
++                default n
++            config ROBOT_MOTOR_MIN_START_PCT
++                int "Minimum PWM duty (%) at the lowest speed (overcomes stiction)"
++                range 0 80
++                default 30
++            config ROBOT_MOTOR_MAX_PCT
++                int "Maximum PWM duty (%) (protects motors on a 2S pack)"
++                range 20 100
++                default 70
++        endmenu
++
++        menu "Laser guard"
++            config ROBOT_CLIFF_MM
++                int "Cliff threshold (mm): reading above this = drop / table edge"
++                range 60 1000
++                default 150
++            config ROBOT_OBSTACLE_MARGIN_MM
++                int "Obstacle margin (mm): reading below (floor - margin) = obstacle"
++                range 10 100
++                default 30
++        endmenu
++
++        menu "Head servo"
++            config ROBOT_HEAD_CENTER_DEG
++                int "Servo angle (deg) when the head is level"
++                range 0 180
++                default 90
++            config ROBOT_HEAD_RANGE_DEG
++                int "Servo travel (deg) for pose +-100"
++                range 5 90
++                default 35
++            config ROBOT_HEAD_INVERT
++                bool "Invert head direction (use if 'up' moves the head down)"
++                default n
++            config ROBOT_SERVO_MIN_US
++                int "Servo pulse at 0 deg (us)"
++                range 400 1000
++                default 500
++            config ROBOT_SERVO_MAX_US
++                int "Servo pulse at 180 deg (us)"
++                range 2000 2600
++                default 2400
++        endmenu
++
++        menu "Behavior"
++            config ROBOT_WANDER_ENABLE
++                bool "Wander (drive / spin randomly) while idle"
++                default y
++            config ROBOT_STOP_WHEN_LISTENING
++                bool "Keep the wheels silent while the device is listening"
++                default y
++                help
++                    Motor noise disturbs the microphone. Turn this off only if you use
++                    realtime listening mode (device stays in the listening state while it talks).
++            config ROBOT_BLIND_REVERSE
++                bool "Allow reversing (there is no rear sensor!)"
++                default y
++                help
++                    Sad / sleepy / reflex moves back up a little. Without a rear sensor the
++                    robot can reverse off a table edge. Short caps are enforced, but turn this
++                    off for table-top use if you have no rear protection.
++            config ROBOT_REVERSE_MAX_MS
++                int "Longest continuous reverse (ms)"
++                range 200 3000
++                default 700
++            config ROBOT_EMOTION_MAX_SEC
++                int "An emotion behavior falls back to neutral after (s)"
++                range 5 600
++                default 90
++            config ROBOT_FACE_REACTION
++                bool "Show surprised/shocked face when the laser guard reacts"
++                default y
++            config ROBOT_ALLOW_NO_SENSOR
++                bool "DANGEROUS: allow wheels when the laser guard is not working"
++                default n
++                help
++                    Only for bench tests without the VL53L0X. The robot will drive off tables.
++        endmenu
++
++    endif # ROBOT_BASE_ENABLE
++
++endmenu
++
+ endmenu
+diff --git a/main/application.cc b/main/application.cc
+index a64c230..4c0f577 100644
+--- a/main/application.cc
++++ b/main/application.cc
+@@ -1,4 +1,7 @@
+ #include "application.h"
++#ifdef CONFIG_ROBOT_BASE_ENABLE
++#include "robot_base/robot_emotion_hook.h"
++#endif
+ #include "board.h"
+ #include "display.h"
+ #include "system_info.h"
+@@ -580,6 +583,9 @@ void Application::InitializeProtocol() {
+             if (cJSON_IsString(emotion)) {
+                 Schedule([display, emotion_str = std::string(emotion->valuestring)]() {
+                     display->SetEmotion(emotion_str.c_str());
++#ifdef CONFIG_ROBOT_BASE_ENABLE
++                    RobotEmotionHook::Notify(emotion_str.c_str());
++#endif
+                 });
+             }
+         } else if (strcmp(type->valuestring, "mcp") == 0) {
+@@ -893,6 +899,9 @@ void Application::HandleStateChangedEvent() {
+             display->SetStatus(Lang::Strings::STANDBY);
+             display->ClearChatMessages();  // Clear messages first
+             display->SetEmotion("neutral"); // Then set emotion (wechat mode checks child count)
++#ifdef CONFIG_ROBOT_BASE_ENABLE
++            RobotEmotionHook::Notify("neutral");
++#endif
+             audio_service_.EnableVoiceProcessing(false);
+             audio_service_.EnableWakeWordDetection(true);
+ #if CONFIG_ENABLE_STORY_PLAYER || CONFIG_ENABLE_MUSIC_PLAYER
+diff --git a/main/boards/bread-compact-wifi-lcd/compact_wifi_board_lcd.cc b/main/boards/bread-compact-wifi-lcd/compact_wifi_board_lcd.cc
+index 51d88bf..b811c15 100644
+--- a/main/boards/bread-compact-wifi-lcd/compact_wifi_board_lcd.cc
++++ b/main/boards/bread-compact-wifi-lcd/compact_wifi_board_lcd.cc
+@@ -8,6 +8,9 @@
+ #include "mcp_server.h"
+ #include "lamp_controller.h"
+ #include "led/single_led.h"
++#ifdef CONFIG_ROBOT_BASE_ENABLE
++#include "robot_base/robot_base.h"
++#endif
+ 
+ #include <esp_log.h>
+ #include <driver/i2c_master.h>
+@@ -135,7 +138,10 @@ private:
+ 
+     // 物联网初始化，添加对 AI 可见设备
+     void InitializeTools() {
++#ifndef CONFIG_ROBOT_BASE_ENABLE
++        // GPIO38 is the VL53L0X INT pin when the robot base is enabled, so no lamp then
+         static LampController lamp(LAMP_GPIO);
++#endif
+     }
+ 
+ public:
+@@ -148,7 +154,11 @@ public:
+         if (DISPLAY_BACKLIGHT_PIN != GPIO_NUM_NC) {
+             GetBacklight()->RestoreBrightness();
+         }
+-        
++#ifdef CONFIG_ROBOT_BASE_ENABLE
++        // wheels + laser guard + head servo; this build has no OLED, so create the I2C bus here
++        RobotBase::GetInstance().Init(RobotBase::CreateI2cBus());
++#endif
++
+     }
+ 
+     virtual Led* GetLed() override {
+diff --git a/main/boards/bread-compact-wifi/compact_wifi_board.cc b/main/boards/bread-compact-wifi/compact_wifi_board.cc
+index 4a632de..492494f 100644
+--- a/main/boards/bread-compact-wifi/compact_wifi_board.cc
++++ b/main/boards/bread-compact-wifi/compact_wifi_board.cc
+@@ -16,6 +16,9 @@
+ #include <esp_lcd_panel_vendor.h>
+ 
+ #include "mochi_display.h"
++#ifdef CONFIG_ROBOT_BASE_ENABLE
++#include "robot_base/robot_base.h"
++#endif
+ #include "settings.h" 
+ #include "esp_system.h"   // esp_restart()
+ 
+@@ -208,6 +211,10 @@ public:
+         InitializeSsd1306Display();
+         InitializeButtons();
+         InitializeTools();
++#ifdef CONFIG_ROBOT_BASE_ENABLE
++        // wheels + laser guard + head servo; the VL53L0X shares the OLED I2C bus
++        RobotBase::GetInstance().Init(display_i2c_bus_);
++#endif
+     }
+ 
+     virtual Led* GetLed() override {
+diff --git a/main/boards/bread-compact-wifi/config.h b/main/boards/bread-compact-wifi/config.h
+index ce6ff13..55d7bbc 100644
+--- a/main/boards/bread-compact-wifi/config.h
++++ b/main/boards/bread-compact-wifi/config.h
+@@ -30,7 +30,12 @@
+ 
+ #define BUILTIN_LED_GPIO        GPIO_NUM_48
+ #define BOOT_BUTTON_GPIO        GPIO_NUM_0
++#ifdef CONFIG_ROBOT_BASE_ENABLE
++// GPIO47 drives the robot head servo, so the touch button is disabled
++#define TOUCH_BUTTON_GPIO       GPIO_NUM_NC
++#else
+ #define TOUCH_BUTTON_GPIO       GPIO_NUM_47
++#endif
+ #define VOLUME_UP_BUTTON_GPIO   GPIO_NUM_4
+ #define VOLUME_DOWN_BUTTON_GPIO GPIO_NUM_5
+ 
+diff --git a/main/robot_base/VL53L0X_LICENSE.txt b/main/robot_base/VL53L0X_LICENSE.txt
+new file mode 100644
+index 0000000..16b6dd0
+--- /dev/null
++++ b/main/robot_base/VL53L0X_LICENSE.txt
+@@ -0,0 +1,71 @@
++Copyright (c) 2017-2022 Pololu Corporation.  For more information, see
++
++https://www.pololu.com/
++https://forum.pololu.com/
++
++Permission is hereby granted, free of charge, to any person
++obtaining a copy of this software and associated documentation
++files (the "Software"), to deal in the Software without
++restriction, including without limitation the rights to use,
++copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the
++Software is furnished to do so, subject to the following
++conditions:
++
++The above copyright notice and this permission notice shall be
++included in all copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
++EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
++OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
++NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
++HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
++WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
++OTHER DEALINGS IN THE SOFTWARE.
++
++=================================================================
++
++Most of the functionality of this library is based on the VL53L0X
++API provided by ST (STSW-IMG005), and some of the explanatory
++comments are quoted or paraphrased from the API source code, API
++user manual (UM2039), and the VL53L0X datasheet.
++
++The following applies to source code reproduced or derived from
++the API:
++
++-----------------------------------------------------------------
++
++Copyright © 2016, STMicroelectronics International N.V.  All
++rights reserved.
++
++Redistribution and use in source and binary forms, with or
++without modification, are permitted provided that the following
++conditions are met:
++* Redistributions of source code must retain the above copyright
++notice, this list of conditions and the following disclaimer.
++* Redistributions in binary form must reproduce the above
++copyright notice, this list of conditions and the following
++disclaimer in the documentation and/or other materials provided
++with the distribution.
++* Neither the name of STMicroelectronics nor the
++names of its contributors may be used to endorse or promote
++products derived from this software without specific prior
++written permission.
++
++THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
++CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
++INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND
++NON-INFRINGEMENT OF INTELLECTUAL PROPERTY RIGHTS ARE DISCLAIMED.
++IN NO EVENT SHALL STMICROELECTRONICS INTERNATIONAL N.V. BE LIABLE
++FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
++OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
++OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
++DAMAGE.
++
++-----------------------------------------------------------------
+diff --git a/main/robot_base/head_servo.cc b/main/robot_base/head_servo.cc
+new file mode 100644
+index 0000000..7c420ae
+--- /dev/null
++++ b/main/robot_base/head_servo.cc
+@@ -0,0 +1,61 @@
++#include "head_servo.h"
++
++#include <esp_log.h>
++
++#define TAG "RobotHead"
++#define SERVO_TIMER LEDC_TIMER_3
++#define SERVO_CH    LEDC_CHANNEL_6
++#define SERVO_RES   LEDC_TIMER_14_BIT
++#define SERVO_HZ    50
++
++bool HeadServo::Init(const Config& cfg) {
++    cfg_ = cfg;
++    ledc_timer_config_t t = {};
++    t.speed_mode = LEDC_LOW_SPEED_MODE;
++    t.duty_resolution = SERVO_RES;
++    t.timer_num = SERVO_TIMER;
++    t.freq_hz = SERVO_HZ;
++    t.clk_cfg = LEDC_AUTO_CLK;
++    if (ledc_timer_config(&t) != ESP_OK) {
++        ESP_LOGE(TAG, "ledc timer config failed");
++        return false;
++    }
++    ledc_channel_config_t c = {};
++    c.gpio_num = cfg_.pin;
++    c.speed_mode = LEDC_LOW_SPEED_MODE;
++    c.channel = SERVO_CH;
++    c.intr_type = LEDC_INTR_DISABLE;
++    c.timer_sel = SERVO_TIMER;
++    c.duty = 0;
++    c.hpoint = 0;
++    if (ledc_channel_config(&c) != ESP_OK) {
++        ESP_LOGE(TAG, "ledc channel config failed");
++        return false;
++    }
++    ready_ = true;
++    SetPose(0);
++    ESP_LOGI(TAG, "servo ready on GPIO%d, center %d deg, range +-%d deg", (int)cfg_.pin, cfg_.center_deg,
++             cfg_.range_deg);
++    return true;
++}
++
++void HeadServo::SetAngleDeg(float deg) {
++    if (!ready_) return;
++    if (deg < 0) deg = 0;
++    if (deg > 180) deg = 180;
++    angle_ = deg;
++    float us = cfg_.min_us + (cfg_.max_us - cfg_.min_us) * (deg / 180.0f);
++    uint32_t max_duty = (1u << SERVO_RES) - 1;
++    uint32_t duty = (uint32_t)(us * SERVO_HZ * (float)(1u << SERVO_RES) / 1000000.0f);
++    if (duty > max_duty) duty = max_duty;
++    ledc_set_duty(LEDC_LOW_SPEED_MODE, SERVO_CH, duty);
++    ledc_update_duty(LEDC_LOW_SPEED_MODE, SERVO_CH);
++}
++
++void HeadServo::SetPose(int pose) {
++    if (pose > 100) pose = 100;
++    if (pose < -100) pose = -100;
++    pose_ = pose;
++    float sign = cfg_.invert ? -1.0f : 1.0f;
++    SetAngleDeg((float)cfg_.center_deg + sign * (float)cfg_.range_deg * (float)pose / 100.0f);
++}
+diff --git a/main/robot_base/head_servo.h b/main/robot_base/head_servo.h
+new file mode 100644
+index 0000000..2d02d5e
+--- /dev/null
++++ b/main/robot_base/head_servo.h
+@@ -0,0 +1,28 @@
++// SG90 head servo on one LEDC channel (50 Hz). Pose -100..+100 maps to center +/- range degrees.
++#pragma once
++#include <driver/gpio.h>
++#include <driver/ledc.h>
++
++class HeadServo {
++public:
++    struct Config {
++        gpio_num_t pin;
++        int center_deg = 90;
++        int range_deg = 35;     // pose +-100 => center +- range_deg
++        bool invert = false;    // flip direction if "up" moves the head down
++        int min_us = 500;       // SG90: ~500..2400 us
++        int max_us = 2400;
++    };
++    bool Init(const Config& cfg);
++    void SetPose(int pose);          // -100..100
++    void SetAngleDeg(float deg);     // absolute, clamped to 0..180
++    int pose() const { return pose_; }
++    float angle_deg() const { return angle_; }
++    bool ready() const { return ready_; }
++
++private:
++    Config cfg_{};
++    bool ready_ = false;
++    int pose_ = 0;
++    float angle_ = 90;
++};
+diff --git a/main/robot_base/motor_driver.cc b/main/robot_base/motor_driver.cc
+new file mode 100644
+index 0000000..6c2ee55
+--- /dev/null
++++ b/main/robot_base/motor_driver.cc
+@@ -0,0 +1,118 @@
++#include "motor_driver.h"
++
++#include <esp_log.h>
++
++#include "robot_logic.h"
++
++#define TAG "RobotMotor"
++
++// LEDC resources used by the robot base (backlight uses timer0/ch0, GpioLed timer1/ch0):
++#define MOTOR_TIMER   LEDC_TIMER_2
++#define MOTOR_RES     LEDC_TIMER_10_BIT
++#define CH_L_IN1      LEDC_CHANNEL_2
++#define CH_L_IN2      LEDC_CHANNEL_3
++#define CH_R_IN1      LEDC_CHANNEL_4
++#define CH_R_IN2      LEDC_CHANNEL_5
++
++bool MotorDriver::Init(const Config& cfg) {
++    cfg_ = cfg;
++    mu_ = xSemaphoreCreateMutex();
++    if (!mu_) return false;
++
++    ledc_timer_config_t t = {};
++    t.speed_mode = LEDC_LOW_SPEED_MODE;
++    t.duty_resolution = MOTOR_RES;
++    t.timer_num = MOTOR_TIMER;
++    t.freq_hz = cfg_.pwm_hz;
++    t.clk_cfg = LEDC_AUTO_CLK;
++    if (ledc_timer_config(&t) != ESP_OK) {
++        ESP_LOGE(TAG, "ledc timer config failed");
++        return false;
++    }
++    max_duty_ = 1u << MOTOR_RES;
++
++    struct Map { ledc_channel_t ch; gpio_num_t pin; };
++    const Map maps[] = {
++        {CH_L_IN1, cfg_.left_in1}, {CH_L_IN2, cfg_.left_in2},
++        {CH_R_IN1, cfg_.right_in1}, {CH_R_IN2, cfg_.right_in2},
++    };
++    for (const auto& m : maps) {
++        ledc_channel_config_t c = {};
++        c.gpio_num = m.pin;
++        c.speed_mode = LEDC_LOW_SPEED_MODE;
++        c.channel = m.ch;
++        c.intr_type = LEDC_INTR_DISABLE;
++        c.timer_sel = MOTOR_TIMER;
++        c.duty = 0;
++        c.hpoint = 0;
++        if (ledc_channel_config(&c) != ESP_OK) {
++            ESP_LOGE(TAG, "ledc channel %d (gpio %d) failed", (int)m.ch, (int)m.pin);
++            return false;
++        }
++    }
++    ready_ = true;
++    Coast();
++    ESP_LOGI(TAG, "DRV8833 ready: L=%d/%d R=%d/%d pwm=%luHz duty %d..%d%%", (int)cfg_.left_in1,
++             (int)cfg_.left_in2, (int)cfg_.right_in1, (int)cfg_.right_in2, (unsigned long)cfg_.pwm_hz,
++             cfg_.min_start_pct, cfg_.max_pct);
++    return true;
++}
++
++void MotorDriver::SetDuty(ledc_channel_t ch, uint32_t duty) {
++    if (duty > max_duty_) duty = max_duty_;
++    ledc_set_duty(LEDC_LOW_SPEED_MODE, ch, duty);
++    ledc_update_duty(LEDC_LOW_SPEED_MODE, ch);
++}
++
++void MotorDriver::SetSide(ledc_channel_t a, ledc_channel_t b, int pct, bool invert) {
++    if (invert) pct = -pct;
++    if (pct == 0) {                      // brake: both inputs high (fast stop)
++        SetDuty(a, max_duty_);
++        SetDuty(b, max_duty_);
++        return;
++    }
++    uint32_t duty = (uint32_t)((pct < 0 ? -pct : pct) * max_duty_ / 100);
++    if (pct > 0) {
++        SetDuty(a, duty);
++        SetDuty(b, 0);
++    } else {
++        SetDuty(a, 0);
++        SetDuty(b, duty);
++    }
++}
++
++void MotorDriver::ApplyLocked(int l, int r) {
++    if (inhibit_.load()) robot::RemoveNetForward(l, r);
++    int dl = robot::ToDutyPercent(l, cfg_.min_start_pct, cfg_.max_pct);
++    int dr = robot::ToDutyPercent(r, cfg_.min_start_pct, cfg_.max_pct);
++    SetSide(CH_L_IN1, CH_L_IN2, dl, cfg_.left_invert);
++    SetSide(CH_R_IN1, CH_R_IN2, dr, cfg_.right_invert);
++}
++
++void MotorDriver::Drive(int left, int right) {
++    if (!ready_) return;
++    xSemaphoreTake(mu_, portMAX_DELAY);
++    cmd_l_ = left;
++    cmd_r_ = right;
++    ApplyLocked(left, right);
++    xSemaphoreGive(mu_);
++}
++
++void MotorDriver::Brake() { Drive(0, 0); }
++
++void MotorDriver::Coast() {
++    if (!ready_) return;
++    xSemaphoreTake(mu_, portMAX_DELAY);
++    cmd_l_ = cmd_r_ = 0;
++    SetDuty(CH_L_IN1, 0); SetDuty(CH_L_IN2, 0);
++    SetDuty(CH_R_IN1, 0); SetDuty(CH_R_IN2, 0);
++    xSemaphoreGive(mu_);
++}
++
++void MotorDriver::SetForwardInhibit(bool inhibit) {
++    inhibit_.store(inhibit);
++    if (!ready_) return;
++    xSemaphoreTake(mu_, portMAX_DELAY);
++    ApplyLocked(cmd_l_, cmd_r_);   // re-apply the last command through the interlock right now
++    xSemaphoreGive(mu_);
++}
+diff --git a/main/robot_base/motor_driver.h b/main/robot_base/motor_driver.h
+new file mode 100644
+index 0000000..656554f
+--- /dev/null
++++ b/main/robot_base/motor_driver.h
+@@ -0,0 +1,47 @@
++// DRV8833 dual H-bridge, 2 PWM pins per wheel (IN1/IN2), no encoder.
++//   forward : IN1 = PWM, IN2 = 0        reverse : IN1 = 0, IN2 = PWM
++//   brake   : IN1 = IN2 = 1             coast   : IN1 = IN2 = 0
++#pragma once
++#include <driver/gpio.h>
++#include <driver/ledc.h>
++#include <freertos/FreeRTOS.h>
++#include <freertos/semphr.h>
++
++#include <atomic>
++
++class MotorDriver {
++public:
++    struct Config {
++        gpio_num_t left_in1, left_in2, right_in1, right_in2;
++        bool left_invert = false;
++        bool right_invert = false;
++        int min_start_pct = 30;   // duty needed to overcome stiction
++        int max_pct = 70;         // duty ceiling (protects motors on a 2S pack)
++        uint32_t pwm_hz = 20000;
++    };
++
++    bool Init(const Config& cfg);
++    // Wheel command -100..100 (percent). Applies the forward interlock.
++    void Drive(int left, int right);
++    void Brake();
++    void Coast();
++    // Hardware-level interlock, set from the laser task: removes the net-forward part
++    // of whatever is being driven right now, immediately.
++    void SetForwardInhibit(bool inhibit);
++    bool forward_inhibited() const { return inhibit_.load(); }
++    int left() const { return cmd_l_; }
++    int right() const { return cmd_r_; }
++    bool ready() const { return ready_; }
++
++private:
++    void ApplyLocked(int l, int r);
++    void SetSide(ledc_channel_t ch_a, ledc_channel_t ch_b, int signed_pct, bool invert);
++    void SetDuty(ledc_channel_t ch, uint32_t duty);
++
++    Config cfg_{};
++    bool ready_ = false;
++    SemaphoreHandle_t mu_ = nullptr;
++    std::atomic<bool> inhibit_{false};
++    int cmd_l_ = 0, cmd_r_ = 0;   // last requested (pre-interlock) command
++    uint32_t max_duty_ = 1024;
++};
+diff --git a/main/robot_base/range_guard.cc b/main/robot_base/range_guard.cc
+new file mode 100644
+index 0000000..c799b66
+--- /dev/null
++++ b/main/robot_base/range_guard.cc
+@@ -0,0 +1,143 @@
++#include "range_guard.h"
++
++#include <esp_log.h>
++#include <esp_timer.h>
++#include <string.h>
++
++#define TAG "RobotRange"
++#define EV_CALIB_DONE BIT0
++#define CAL_SAMPLES 15
++
++void IRAM_ATTR RangeGuard::IsrHandler(void* arg) {
++    auto* self = static_cast<RangeGuard*>(arg);
++    BaseType_t woken = pdFALSE;
++    xSemaphoreGiveFromISR(self->drdy_, &woken);
++    if (woken) portYIELD_FROM_ISR();
++}
++
++bool RangeGuard::Init(i2c_master_bus_handle_t bus, const Config& cfg) {
++    cfg_ = cfg;
++    if (bus == nullptr) {
++        ESP_LOGE(TAG, "no I2C bus");
++        return false;
++    }
++    if (!tof_.attach(bus, cfg_.i2c_addr, 400000)) {
++        ESP_LOGE(TAG, "cannot add I2C device 0x%02x", cfg_.i2c_addr);
++        return false;
++    }
++    tof_.setTimeout(100);
++    if (!tof_.init(true)) {
++        ESP_LOGE(TAG, "VL53L0X init failed (wiring? address 0x%02x)", cfg_.i2c_addr);
++        return false;
++    }
++    // Fast ranging: 20 ms budget, back-to-back continuous mode, interrupt on every sample.
++    tof_.setMeasurementTimingBudget(20000);
++    tof_.startContinuous(0);
++    tof_.setTimeout(30);
++    present_ = true;
++
++    robot::HazardConfig hc;
++    hc.cliff_mm = cfg_.cliff_mm;
++    hc.obstacle_margin_mm = cfg_.obstacle_margin_mm;
++    cls_.Configure(hc);
++    cls_.SetFloor(0);
++
++    events_ = xEventGroupCreate();
++    drdy_ = xSemaphoreCreateBinary();
++    if (!events_ || !drdy_) return false;
++
++    if (cfg_.int_pin != GPIO_NUM_NC) {
++        gpio_config_t io = {};
++        io.pin_bit_mask = 1ULL << cfg_.int_pin;
++        io.mode = GPIO_MODE_INPUT;
++        io.pull_up_en = GPIO_PULLUP_ENABLE;
++        io.pull_down_en = GPIO_PULLDOWN_DISABLE;
++        io.intr_type = GPIO_INTR_NEGEDGE;
++        gpio_config(&io);
++        esp_err_t e = gpio_install_isr_service(0);   // ESP_ERR_INVALID_STATE = already installed, fine
++        if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) ESP_LOGW(TAG, "isr service: %s", esp_err_to_name(e));
++        gpio_isr_handler_add(cfg_.int_pin, IsrHandler, this);
++    }
++
++    last_ok_us_.store(esp_timer_get_time());
++    calib_req_.store(true);   // calibrate the floor automatically at boot (robot must stand on the floor)
++    BaseType_t ok = xTaskCreate(TaskEntry, "robot_range", 4096, this, 6, &task_);
++    ESP_LOGI(TAG, "VL53L0X ready (INT=GPIO%d), cliff > %u mm", (int)cfg_.int_pin, cfg_.cliff_mm);
++    return ok == pdPASS;
++}
++
++bool RangeGuard::healthy() const {
++    if (!present_) return false;
++    int64_t age_ms = (esp_timer_get_time() - last_ok_us_.load()) / 1000;
++    return age_ms < 300 && hazard_.load() != robot::Hazard::kSensorFault;
++}
++
++bool RangeGuard::Calibrate() {
++    if (!present_) return false;
++    xEventGroupClearBits(events_, EV_CALIB_DONE);
++    calib_ok_.store(false);
++    calib_req_.store(true);
++    EventBits_t b = xEventGroupWaitBits(events_, EV_CALIB_DONE, pdTRUE, pdFALSE, pdMS_TO_TICKS(3000));
++    return (b & EV_CALIB_DONE) && calib_ok_.load();
++}
++
++void RangeGuard::TaskEntry(void* arg) {
++    static_cast<RangeGuard*>(arg)->Loop();
++    vTaskDelete(nullptr);
++}
++
++void RangeGuard::Loop() {
++    uint16_t cal[CAL_SAMPLES];
++    size_t cal_n = 0;
++    bool calibrating = false;
++    robot::Hazard prev = robot::Hazard::kUnknown;
++    uint32_t warned = 0;
++
++    for (;;) {
++        // wait for the data-ready interrupt; fall back to polling if INT is not wired
++        bool got_int = xSemaphoreTake(drdy_, pdMS_TO_TICKS(40)) == pdTRUE;
++        if (!got_int && cfg_.int_pin != GPIO_NUM_NC && (warned++ % 100) == 0) {
++            ESP_LOGW(TAG, "no data-ready interrupt on GPIO%d, polling instead", (int)cfg_.int_pin);
++        }
++
++        uint16_t mm = tof_.readRangeContinuousMillimeters();
++        bool io_ok = !tof_.timeoutOccurred() && tof_.last_status == 0;
++        if (io_ok) last_ok_us_.store(esp_timer_get_time());
++        last_mm_.store(io_ok ? mm : 0);
++
++        if (calib_req_.exchange(false)) {
++            calibrating = true;
++            cal_n = 0;
++        }
++        if (calibrating) {
++            if (io_ok && mm < 8000 && cal_n < CAL_SAMPLES) cal[cal_n++] = mm;
++            if (cal_n >= CAL_SAMPLES) {
++                uint16_t floor = 0;
++                bool ok = robot::ComputeFloor(cal, cal_n, cfg_.cliff_mm, &floor);
++                if (ok) {
++                    floor_mm_.store(floor);
++                    cls_.SetFloor(floor);
++                    ESP_LOGI(TAG, "floor calibrated: %u mm (cliff > %u, obstacle < %u)", floor, cfg_.cliff_mm,
++                             floor > cfg_.obstacle_margin_mm ? floor - cfg_.obstacle_margin_mm : 0);
++                } else {
++                    floor_mm_.store(0);
++                    cls_.SetFloor(0);
++                    ESP_LOGW(TAG, "floor calibration failed (noisy, too close to cliff, or not on the floor): "
++                                  "obstacle detection off, cliff detection still on");
++                }
++                calib_ok_.store(ok);
++                calibrating = false;
++                xEventGroupSetBits(events_, EV_CALIB_DONE);
++            }
++        }
++
++        robot::Hazard h = cls_.Feed(mm, io_ok);
++        hazard_.store(h);
++        if (h != prev) {
++            ESP_LOGI(TAG, "hazard %s -> %s (range %u mm)", robot::HazardName(prev), robot::HazardName(h), mm);
++            prev = h;
++            if (cb_) cb_(h);
++        }
++        if (!got_int) vTaskDelay(pdMS_TO_TICKS(5));   // never hog the CPU when polling
++    }
++}
+diff --git a/main/robot_base/range_guard.h b/main/robot_base/range_guard.h
+new file mode 100644
+index 0000000..477958f
+--- /dev/null
++++ b/main/robot_base/range_guard.h
+@@ -0,0 +1,62 @@
++// VL53L0X forward/down laser guard. One sensor, mounted at the front looking diagonally
++// at the floor: a shorter reading than the calibrated floor distance = obstacle,
++// a longer reading (or no echo) = drop / table edge.
++#pragma once
++#include <driver/gpio.h>
++#include <driver/i2c_master.h>
++#include <freertos/FreeRTOS.h>
++#include <freertos/event_groups.h>
++#include <freertos/semphr.h>
++#include <freertos/task.h>
++
++#include <atomic>
++#include <functional>
++#include <memory>
++
++#include "robot_logic.h"
++#include "vl53l0x.h"
++
++class RangeGuard {
++public:
++    struct Config {
++        gpio_num_t int_pin = GPIO_NUM_NC;   // VL53L0X GPIO1 (active low, "new sample ready")
++        uint16_t cliff_mm = 150;
++        uint16_t obstacle_margin_mm = 30;
++        uint8_t i2c_addr = 0x29;
++    };
++    using HazardCallback = std::function<void(robot::Hazard)>;
++
++    // Shares an existing i2c_master bus (the OLED bus on the OLED build).
++    bool Init(i2c_master_bus_handle_t bus, const Config& cfg);
++    // Re-measure the floor distance. The robot must stand on flat floor. Blocks up to ~3 s.
++    bool Calibrate();
++
++    robot::Hazard hazard() const { return hazard_.load(); }
++    uint16_t distance_mm() const { return last_mm_.load(); }
++    uint16_t floor_mm() const { return floor_mm_.load(); }
++    bool present() const { return present_; }
++    // true when samples are fresh (< 300 ms old) and there is no I2C fault
++    bool healthy() const;
++    // called from the sensor task on every hazard change: keep it short
++    void SetHazardCallback(HazardCallback cb) { cb_ = std::move(cb); }
++
++private:
++    static void TaskEntry(void* arg);
++    void Loop();
++    static void IRAM_ATTR IsrHandler(void* arg);
++
++    Config cfg_{};
++    VL53L0X tof_;
++    bool present_ = false;
++    robot::HazardClassifier cls_;
++    std::atomic<robot::Hazard> hazard_{robot::Hazard::kUnknown};
++    std::atomic<uint16_t> last_mm_{0};
++    std::atomic<uint16_t> floor_mm_{0};
++    std::atomic<int64_t> last_ok_us_{0};
++    std::atomic<bool> calib_req_{false};
++    std::atomic<bool> calib_ok_{false};
++    EventGroupHandle_t events_ = nullptr;
++    SemaphoreHandle_t drdy_ = nullptr;
++    HazardCallback cb_;
++    TaskHandle_t task_ = nullptr;
++};
+diff --git a/main/robot_base/robot_base.cc b/main/robot_base/robot_base.cc
+new file mode 100644
+index 0000000..c8a56e8
+--- /dev/null
++++ b/main/robot_base/robot_base.cc
+@@ -0,0 +1,327 @@
++#include "robot_base.h"
++
++#include <cJSON.h>
++#include <esp_log.h>
++#include <esp_timer.h>
++
++#include <math.h>
++#include <stdexcept>
++#include <string>
++
++#include "application.h"
++#include "board.h"
++#include "display.h"
++#include "mcp_server.h"
++#include "robot_emotion_hook.h"
++
++#define TAG "RobotBase"
++#define TICK_MS 20
++
++static inline int64_t NowMs() { return esp_timer_get_time() / 1000; }
++
++RobotBase& RobotBase::GetInstance() {
++    static RobotBase instance;
++    return instance;
++}
++
++i2c_master_bus_handle_t RobotBase::CreateI2cBus() {
++    i2c_master_bus_handle_t bus = nullptr;
++    i2c_master_bus_config_t cfg = {
++        .i2c_port = (i2c_port_t)0,
++        .sda_io_num = (gpio_num_t)CONFIG_ROBOT_I2C_SDA,
++        .scl_io_num = (gpio_num_t)CONFIG_ROBOT_I2C_SCL,
++        .clk_source = I2C_CLK_SRC_DEFAULT,
++        .glitch_ignore_cnt = 7,
++        .intr_priority = 0,
++        .trans_queue_depth = 0,
++        .flags = {
++            .enable_internal_pullup = 1,
++        },
++    };
++    if (i2c_new_master_bus(&cfg, &bus) != ESP_OK) {
++        ESP_LOGE(TAG, "cannot create I2C bus on SDA=%d SCL=%d", CONFIG_ROBOT_I2C_SDA, CONFIG_ROBOT_I2C_SCL);
++        return nullptr;
++    }
++    return bus;
++}
++
++bool RobotBase::Init(i2c_master_bus_handle_t i2c_bus) {
++    if (initialized_) return true;
++    mu_ = xSemaphoreCreateMutex();
++
++    // ---- configuration (menuconfig: Xiaozhi Assistant -> Robot Base) ----------------------
++    robot::ControllerConfig cc;
++#ifdef CONFIG_ROBOT_WANDER_ENABLE
++    cc.wander = true;
++#else
++    cc.wander = false;
++#endif
++#ifdef CONFIG_ROBOT_STOP_WHEN_LISTENING
++    cc.stop_when_listening = true;
++#else
++    cc.stop_when_listening = false;
++#endif
++#ifdef CONFIG_ROBOT_ALLOW_NO_SENSOR
++    cc.allow_no_sensor = true;
++#else
++    cc.allow_no_sensor = false;
++#endif
++#ifdef CONFIG_ROBOT_BLIND_REVERSE
++    cc.blind_reverse = true;
++#else
++    cc.blind_reverse = false;
++#endif
++#ifdef CONFIG_ROBOT_FACE_REACTION
++    cc.face_reaction = true;
++#else
++    cc.face_reaction = false;
++#endif
++    cc.reverse_max_ms = CONFIG_ROBOT_REVERSE_MAX_MS;
++    cc.emotion_max_ms = (uint32_t)CONFIG_ROBOT_EMOTION_MAX_SEC * 1000u;
++    allow_no_sensor_ = cc.allow_no_sensor;
++    ctl_ = std::make_unique<robot::RobotController>(cc, (uint32_t)esp_timer_get_time());
++
++    // ---- head servo ---------------------------------------------------------------------
++    HeadServo::Config hc;
++    hc.pin = (gpio_num_t)CONFIG_ROBOT_PIN_SERVO;
++    hc.center_deg = CONFIG_ROBOT_HEAD_CENTER_DEG;
++    hc.range_deg = CONFIG_ROBOT_HEAD_RANGE_DEG;
++#ifdef CONFIG_ROBOT_HEAD_INVERT
++    hc.invert = true;
++#endif
++    hc.min_us = CONFIG_ROBOT_SERVO_MIN_US;
++    hc.max_us = CONFIG_ROBOT_SERVO_MAX_US;
++    bool head_ok = head_.Init(hc);
++
++    // ---- wheels -------------------------------------------------------------------------
++    MotorDriver::Config mc;
++    mc.left_in1 = (gpio_num_t)CONFIG_ROBOT_PIN_MOTOR_L_IN1;
++    mc.left_in2 = (gpio_num_t)CONFIG_ROBOT_PIN_MOTOR_L_IN2;
++    mc.right_in1 = (gpio_num_t)CONFIG_ROBOT_PIN_MOTOR_R_IN1;
++    mc.right_in2 = (gpio_num_t)CONFIG_ROBOT_PIN_MOTOR_R_IN2;
++#ifdef CONFIG_ROBOT_MOTOR_L_INVERT
++    mc.left_invert = true;
++#endif
++#ifdef CONFIG_ROBOT_MOTOR_R_INVERT
++    mc.right_invert = true;
++#endif
++    mc.min_start_pct = CONFIG_ROBOT_MOTOR_MIN_START_PCT;
++    mc.max_pct = CONFIG_ROBOT_MOTOR_MAX_PCT;
++    bool motors_ok = motors_.Init(mc);
++
++    // ---- laser guard --------------------------------------------------------------------
++    RangeGuard::Config gc;
++    gc.int_pin = (gpio_num_t)CONFIG_ROBOT_PIN_TOF_INT;
++    gc.cliff_mm = CONFIG_ROBOT_CLIFF_MM;
++    gc.obstacle_margin_mm = CONFIG_ROBOT_OBSTACLE_MARGIN_MM;
++    bool guard_ok = guard_.Init(i2c_bus, gc);
++    if (guard_ok) {
++        // Hardware-level interlock: the moment anything but a clear floor is reported,
++        // forward motion is cut right in the sensor task (does not wait for the 20 ms engine tick).
++        guard_.SetHazardCallback([this](robot::Hazard h) { motors_.SetForwardInhibit(h != robot::Hazard::kNone); });
++        motors_.SetForwardInhibit(true);  // until the first clean samples arrive
++    } else {
++        ESP_LOGE(TAG, "laser guard NOT available -> wheels are disabled%s",
++                 allow_no_sensor_ ? " (CONFIG_ROBOT_ALLOW_NO_SENSOR is ON: wheels enabled WITHOUT protection!)" : "");
++    }
++
++    RegisterTools();
++    RobotEmotionHook::Set([this](const char* e) { OnEmotion(e); });
++
++    initialized_ = true;
++    xTaskCreate(TaskEntry, "robot_engine", 4096, this, 5, nullptr);
++    ESP_LOGI(TAG, "robot base up: head=%d motors=%d guard=%d", head_ok, motors_ok, guard_ok);
++    return head_ok && motors_ok && guard_ok;
++}
++
++bool RobotBase::LocomotionAllowed() const {
++    return guard_.healthy() || allow_no_sensor_;
++}
++
++void RobotBase::OnEmotion(const char* emotion) {
++    if (!initialized_ || !emotion) return;
++    xSemaphoreTake(mu_, portMAX_DELAY);
++    perform_end_ms_ = 0;                 // a real emotion from the server replaces a tool-driven one
++    ctl_->SetEmotion(emotion);
++    xSemaphoreGive(mu_);
++}
++
++void RobotBase::SetFace(const char* emotion) {
++    auto* display = Board::GetInstance().GetDisplay();
++    if (!display || !emotion) return;
++    // Display calls belong to the main task, like application.cc does it.
++    Application::GetInstance().Schedule([display, e = std::string(emotion)]() { display->SetEmotion(e.c_str()); });
++}
++
++void RobotBase::TaskEntry(void* arg) {
++    static_cast<RobotBase*>(arg)->Loop();
++    vTaskDelete(nullptr);
++}
++
++void RobotBase::Loop() {
++    const float dt_s = TICK_MS / 1000.0f;
++    const float kAccel = 300.0f, kDecel = 800.0f;   // wheel % per second
++    const float kHeadRate = 450.0f;                 // head pose units per second
++    TickType_t last = xTaskGetTickCount();
++    int last_pose = 9999;
++
++    for (;;) {
++        vTaskDelayUntil(&last, pdMS_TO_TICKS(TICK_MS));
++
++        DeviceState st = Application::GetInstance().GetDeviceState();
++        robot::ControllerInput in;
++        in.dt_ms = TICK_MS;
++        in.hazard = guard_.present() ? guard_.hazard() : robot::Hazard::kSensorFault;
++        in.sensor_ok = guard_.healthy();
++        in.listening = (st == kDeviceStateListening);
++        in.idle = (st == kDeviceStateIdle);
++
++        robot::ControllerOutput out;
++        xSemaphoreTake(mu_, portMAX_DELAY);
++        if (perform_end_ms_ && NowMs() >= perform_end_ms_) {
++            perform_end_ms_ = 0;
++            ctl_->SetEmotion("neutral");
++            SetFace("neutral");
++        }
++        out = ctl_->Tick(in);
++        xSemaphoreGive(mu_);
++
++        if (out.face) SetFace(out.face);
++
++        // wheels: slew-rate limited, the hardware interlock in MotorDriver still has the last word
++        cur_l_ = robot::RampToward(cur_l_, (float)out.left, dt_s, kAccel, kDecel);
++        cur_r_ = robot::RampToward(cur_r_, (float)out.right, dt_s, kAccel, kDecel);
++        motors_.Drive((int)lroundf(cur_l_), (int)lroundf(cur_r_));
++
++        // head
++        cur_head_ = robot::RampToward(cur_head_, out.head, dt_s, kHeadRate, kHeadRate);
++        int pose = (int)lroundf(cur_head_);
++        if (pose != last_pose) {
++            head_.SetPose(pose);
++            last_pose = pose;
++        }
++    }
++}
++
++// ---------------------------------------------------------------------------------------
++// MCP tools (what the LLM can call)
++// ---------------------------------------------------------------------------------------
++void RobotBase::RegisterTools() {
++    auto& mcp = McpServer::GetInstance();
++
++    mcp.AddTool("self.robot.get_status",
++                "Get robot status: current mode/behavior, laser distance to the floor ahead in mm, hazard "
++                "(none/obstacle/cliff/sensor_fault/unknown), calibrated floor distance, head pose, wander on/off.",
++                PropertyList(), [this](const PropertyList&) -> ReturnValue {
++                    xSemaphoreTake(mu_, portMAX_DELAY);
++                    cJSON* j = cJSON_CreateObject();
++                    cJSON_AddStringToObject(j, "mode", ctl_->ModeName());
++                    cJSON_AddStringToObject(j, "behavior", ctl_->BehaviorName());
++                    cJSON_AddStringToObject(j, "emotion", ctl_->last_emotion());
++                    cJSON_AddBoolToObject(j, "wander", ctl_->wander_enabled());
++                    xSemaphoreGive(mu_);
++                    cJSON_AddStringToObject(j, "hazard", robot::HazardName(guard_.hazard()));
++                    cJSON_AddNumberToObject(j, "distance_mm", guard_.distance_mm());
++                    cJSON_AddNumberToObject(j, "floor_mm", guard_.floor_mm());
++                    cJSON_AddBoolToObject(j, "sensor_ok", guard_.healthy());
++                    cJSON_AddNumberToObject(j, "head_pose", head_.pose());
++                    char* s = cJSON_PrintUnformatted(j);
++                    std::string r(s);
++                    cJSON_free(s);
++                    cJSON_Delete(j);
++                    return r;
++                });
++
++    mcp.AddTool("self.robot.move",
++                "Drive the robot wheels for a short time. direction: forward, backward, left (curve left), "
++                "right (curve right), spin_left, spin_right. speed 10-100 percent, duration_ms 100-5000. "
++                "The laser guard stops forward motion automatically at obstacles and table edges.",
++                PropertyList({Property("direction", kPropertyTypeString, "forward"),
++                              Property("speed", kPropertyTypeInteger, 40, 10, 100),
++                              Property("duration_ms", kPropertyTypeInteger, 1000, 100, 5000)}),
++                [this](const PropertyList& p) -> ReturnValue {
++                    if (!LocomotionAllowed()) {
++                        throw std::runtime_error("Laser guard not working: wheels disabled for safety");
++                    }
++                    std::string d = p["direction"].value<std::string>();
++                    int s = p["speed"].value<int>();
++                    uint32_t ms = (uint32_t)p["duration_ms"].value<int>();
++                    int l, r;
++                    if (d == "forward") { l = s; r = s; }
++                    else if (d == "backward") { l = -s; r = -s; }
++                    else if (d == "left") { l = s * 3 / 10; r = s; }
++                    else if (d == "right") { l = s; r = s * 3 / 10; }
++                    else if (d == "spin_left") { l = -s; r = s; }
++                    else if (d == "spin_right") { l = s; r = -s; }
++                    else throw std::runtime_error("Unknown direction: " + d);
++                    xSemaphoreTake(mu_, portMAX_DELAY);
++                    ctl_->ManualMove(l, r, ms);
++                    xSemaphoreGive(mu_);
++                    return true;
++                });
++
++    mcp.AddTool("self.robot.stop", "Stop the wheels and cancel the current emotion/behavior.", PropertyList(),
++                [this](const PropertyList&) -> ReturnValue {
++                    xSemaphoreTake(mu_, portMAX_DELAY);
++                    perform_end_ms_ = 0;
++                    ctl_->Stop();
++                    xSemaphoreGive(mu_);
++                    return true;
++                });
++
++    mcp.AddTool("self.robot.head",
++                "Move the head (screen). pose -100 (head down) .. 0 (centre) .. +100 (head up). "
++                "It holds for hold_ms then returns to normal behaviour.",
++                PropertyList({Property("pose", kPropertyTypeInteger, 0, -100, 100),
++                              Property("hold_ms", kPropertyTypeInteger, 3000, 300, 10000)}),
++                [this](const PropertyList& p) -> ReturnValue {
++                    xSemaphoreTake(mu_, portMAX_DELAY);
++                    ctl_->ManualHead(p["pose"].value<int>(), (uint32_t)p["hold_ms"].value<int>());
++                    xSemaphoreGive(mu_);
++                    return true;
++                });
++
++    mcp.AddTool("self.robot.perform",
++                "Act out an emotion with wheels, head and face. emotion: happy, laughing, silly, sad, crying, "
++                "angry, sleepy, surprised, confused, embarrassed, loving, thinking, cool, relaxed, winking, "
++                "delicious, neutral. duration_s 1-60, then it returns to neutral.",
++                PropertyList({Property("emotion", kPropertyTypeString, "happy"),
++                              Property("duration_s", kPropertyTypeInteger, 8, 1, 60)}),
++                [this](const PropertyList& p) -> ReturnValue {
++                    std::string e = p["emotion"].value<std::string>();
++                    bool known = false;
++                    robot::FindEmotionBehavior(e.c_str(), &known);
++                    if (!known) throw std::runtime_error("Unknown emotion: " + e);
++                    xSemaphoreTake(mu_, portMAX_DELAY);
++                    ctl_->SetEmotion(e.c_str());
++                    perform_end_ms_ = (e == "neutral") ? 0 : NowMs() + (int64_t)p["duration_s"].value<int>() * 1000;
++                    xSemaphoreGive(mu_);
++                    SetFace(e.c_str());
++                    return true;
++                });
++
++    mcp.AddTool("self.robot.set_wander",
++                "Turn idle wandering (random driving and spinning while the robot is idle) on or off.",
++                PropertyList({Property("enabled", kPropertyTypeBoolean)}),
++                [this](const PropertyList& p) -> ReturnValue {
++                    xSemaphoreTake(mu_, portMAX_DELAY);
++                    ctl_->SetWander(p["enabled"].value<bool>());
++                    xSemaphoreGive(mu_);
++                    return true;
++                });
++
++    mcp.AddTool("self.robot.calibrate_floor",
++                "Re-measure the laser distance to the floor. Only call it when the robot stands on a flat floor "
++                "with nothing in front. Takes about one second.",
++                PropertyList(), [this](const PropertyList&) -> ReturnValue {
++                    bool ok = guard_.Calibrate();
++                    cJSON* j = cJSON_CreateObject();
++                    cJSON_AddBoolToObject(j, "ok", ok);
++                    cJSON_AddNumberToObject(j, "floor_mm", guard_.floor_mm());
++                    char* s = cJSON_PrintUnformatted(j);
++                    std::string r(s);
++                    cJSON_free(s);
++                    cJSON_Delete(j);
++                    return r;
++                });
++}
+diff --git a/main/robot_base/robot_base.h b/main/robot_base/robot_base.h
+new file mode 100644
+index 0000000..87568bd
+--- /dev/null
++++ b/main/robot_base/robot_base.h
+@@ -0,0 +1,47 @@
++// Robot base for xiaozhi: 2 DC wheels (DRV8833) + VL53L0X laser guard + SG90 head servo.
++// Works with every display type (OLED Mochi face / TFT robot eyes) because it follows the
++// emotion string xiaozhi already sends to the display.
++#pragma once
++#include <driver/i2c_master.h>
++#include <freertos/FreeRTOS.h>
++#include <freertos/semphr.h>
++#include <freertos/task.h>
++
++#include <memory>
++
++#include "head_servo.h"
++#include "motor_driver.h"
++#include "range_guard.h"
++#include "robot_controller.h"
++
++class RobotBase {
++public:
++    static RobotBase& GetInstance();
++
++    // Creates the I2C bus on CONFIG_ROBOT_I2C_SDA/SCL (LCD build, which has no OLED bus).
++    static i2c_master_bus_handle_t CreateI2cBus();
++
++    // Call once from the board constructor. `i2c_bus` is shared with the OLED on the OLED build.
++    bool Init(i2c_master_bus_handle_t i2c_bus);
++
++    // follows xiaozhi emotions: "happy", "sad", "angry", "sleepy", ..., "neutral"
++    void OnEmotion(const char* emotion);
++
++private:
++    RobotBase() = default;
++    static void TaskEntry(void* arg);
++    void Loop();
++    void RegisterTools();
++    void SetFace(const char* emotion);
++    bool LocomotionAllowed() const;
++
++    MotorDriver motors_;
++    HeadServo head_;
++    RangeGuard guard_;
++    std::unique_ptr<robot::RobotController> ctl_;
++    SemaphoreHandle_t mu_ = nullptr;
++    bool initialized_ = false;
++    bool allow_no_sensor_ = false;
++    float cur_l_ = 0, cur_r_ = 0, cur_head_ = 0;
++    int64_t perform_end_ms_ = 0;
++};
+diff --git a/main/robot_base/robot_behaviors.cc b/main/robot_base/robot_behaviors.cc
+new file mode 100644
+index 0000000..d847c2a
+--- /dev/null
++++ b/main/robot_base/robot_behaviors.cc
+@@ -0,0 +1,181 @@
++// Emotion / idle / reflex behavior tables.
++//
++// Step = { left%, right%, head pose, osc amplitude, osc period ms, duration ms, random extra ms, flags }
++//   wheels : -100..100 (negative = reverse)
++//   head   : -100 (head down) .. +100 (head up);  osc = sinusoidal wobble around the pose
++//   kFlagMirror : left/right swapped at random each time the step starts (random turn direction)
++//
++// Edit the numbers here to tune the personality. Everything goes through the safety layer
++// (laser guard, reverse caps) in RobotController, so tables never bypass safety.
++#include <string.h>
++
++#include "robot_logic.h"
++
++namespace robot {
++
++#define M kFlagMirror
++
++// ---- Emotions asked for ---------------------------------------------------
++// HAPPY: face happy, spin in place until the emotion changes, head bobbing excitedly.
++static const Step kHappySteps[] = {
++    {+55, -55, +25, 30, 420, 2600, 800, M},   // spin (random direction)
++    {+50, +50, +30, 30, 420, 260, 0, 0},      // little hop forward (laser-guarded)
++    {-50, -50, +30, 30, 420, 260, 0, 0},      // hop back (blind, short)
++};
++// SAD: back away slowly, head bowed, sighing pauses.
++static const Step kSadSteps[] = {
++    {-30, -30, -70, 8, 1600, 650, 0, 0},
++    {0, 0, -95, 0, 0, 1100, 400, 0},
++    {-25, -25, -80, 6, 1800, 500, 0, 0},
++    {0, 0, -100, 0, 0, 1600, 600, 0},
++};
++// ANGRY: advance slowly, chin up defiantly, glare, head slam, small stomp-turn.
++static const Step kAngrySteps[] = {
++    {+28, +28, +75, 5, 110, 1400, 400, 0},
++    {0, 0, +90, 4, 100, 600, 300, 0},
++    {0, 0, -40, 0, 0, 280, 0, 0},
++    {0, 0, +85, 0, 0, 500, 0, 0},
++    {+30, -30, +75, 0, 0, 250, 150, M},
++};
++// SLEEPY: creep back and forth slowly, head nodding off.
++static const Step kSleepySteps[] = {
++    {+18, +18, -20, 35, 2800, 800, 0, 0},
++    {0, 0, -35, 35, 2800, 900, 300, 0},
++    {-18, -18, -25, 35, 2800, 800, 0, 0},
++    {0, 0, -45, 35, 2800, 1400, 500, 0},
++};
++
++// ---- Extra emotions -------------------------------------------------------
++static const Step kLaughSteps[] = {
++    {+60, -60, +30, 50, 300, 700, 300, M},    // fast shimmy-spin
++    {+40, +40, +30, 50, 300, 200, 0, 0},
++    {-40, -40, +30, 50, 300, 200, 0, 0},
++};
++static const Step kCrySteps[] = {
++    {-25, -25, -80, 10, 140, 500, 0, 0},      // trembling head
++    {0, 0, -90, 10, 140, 1500, 500, 0},
++};
++static const Step kSurprisedSteps[] = {
++    {-60, -60, +100, 0, 0, 280, 0, 0},        // jump back
++    {0, 0, +100, 0, 0, 700, 0, 0},            // freeze
++    {0, 0, +60, 12, 260, 1200, 0, 0},         // look around, trembling
++};
++static const Step kConfusedSteps[] = {
++    {+35, -35, +30, 0, 0, 350, 0, 0},
++    {-35, +35, -10, 0, 0, 700, 0, 0},
++    {+35, -35, +20, 0, 0, 350, 0, 0},
++    {0, 0, +20, 25, 900, 900, 0, 0},
++};
++static const Step kEmbarrassedSteps[] = {
++    {-25, -25, -60, 0, 0, 350, 0, 0},
++    {+30, -30, -75, 0, 0, 450, 200, M},       // turn away
++    {0, 0, -85, 8, 200, 1500, 0, 0},
++};
++static const Step kLovingSteps[] = {
++    {+20, +20, +15, 15, 1800, 1300, 300, 0},  // approach softly, swaying
++    {0, 0, +20, 20, 1200, 1200, 300, 0},
++    {+30, -30, +10, 15, 1400, 500, 200, M},   // little twirl
++};
++static const Step kThinkingSteps[] = {
++    {0, 0, +30, 10, 2200, 2500, 1000, 0},
++};
++static const Step kCoolSteps[] = {
++    {+35, +35, +15, 0, 0, 1600, 400, 0},
++    {+40, +22, +20, 0, 0, 1400, 300, M},
++    {0, 0, +30, 0, 0, 700, 300, 0},
++};
++static const Step kRelaxedSteps[] = {
++    {+22, +22, 0, 12, 2600, 2000, 500, 0},
++    {0, 0, -5, 12, 2600, 1500, 500, 0},
++};
++static const Step kWinkSteps[] = {
++    {0, 0, -35, 0, 0, 220, 0, 0},
++    {0, 0, +15, 0, 0, 900, 0, 0},
++};
++static const Step kDeliciousSteps[] = {
++    {+35, -35, +15, 25, 500, 1200, 400, M},
++    {0, 0, +10, 25, 500, 800, 300, 0},
++};
++static const Step kSillySteps[] = {
++    {+60, +20, +25, 40, 350, 420, 0, 0},      // zig-zag
++    {+20, +60, +25, 40, 350, 420, 0, 0},
++};
++
++//                      name         steps              n  loop  max_rev  max_total
++static const Behavior kHappy      = {"happy",      kHappySteps,      3, true,  0,    0};
++static const Behavior kSad        = {"sad",        kSadSteps,        4, true,  1800, 0};
++static const Behavior kAngry      = {"angry",      kAngrySteps,      5, true,  0,    0};
++static const Behavior kSleepy     = {"sleepy",     kSleepySteps,     4, true,  1600, 0};
++static const Behavior kLaugh      = {"laughing",   kLaughSteps,      3, true,  0,    0};
++static const Behavior kCry        = {"crying",     kCrySteps,        2, true,  1000, 0};
++static const Behavior kSurprised  = {"surprised",  kSurprisedSteps,  3, false, 300,  0};
++static const Behavior kConfused   = {"confused",   kConfusedSteps,   4, true,  0,    0};
++static const Behavior kEmbarrassed= {"embarrassed",kEmbarrassedSteps,3, false, 400,  0};
++static const Behavior kLoving     = {"loving",     kLovingSteps,     3, true,  0,    0};
++static const Behavior kThinking   = {"thinking",   kThinkingSteps,   1, true,  0,    0};
++static const Behavior kCool       = {"cool",       kCoolSteps,       3, true,  0,    0};
++static const Behavior kRelaxed    = {"relaxed",    kRelaxedSteps,    2, true,  0,    0};
++static const Behavior kWink       = {"winking",    kWinkSteps,       2, false, 0,    0};
++static const Behavior kDelicious  = {"delicious",  kDeliciousSteps,  2, true,  0,    0};
++static const Behavior kSilly      = {"silly",      kSillySteps,      2, true,  0,    0};
++
++struct EmotionEntry { const char* name; const Behavior* b; };
++static const EmotionEntry kEmotionMap[] = {
++    {"happy", &kHappy},        {"laughing", &kLaugh},     {"funny", &kSilly},
++    {"silly", &kSilly},        {"sad", &kSad},            {"crying", &kCry},
++    {"angry", &kAngry},        {"sleepy", &kSleepy},      {"surprised", &kSurprised},
++    {"shocked", &kSurprised},  {"confused", &kConfused},  {"embarrassed", &kEmbarrassed},
++    {"loving", &kLoving},      {"kissy", &kLoving},       {"thinking", &kThinking},
++    {"cool", &kCool},          {"confident", &kCool},     {"relaxed", &kRelaxed},
++    {"winking", &kWink},       {"delicious", &kDelicious},
++};
++
++const Behavior* FindEmotionBehavior(const char* emotion, bool* known) {
++    if (known) *known = true;
++    if (!emotion || !*emotion || strcmp(emotion, "neutral") == 0) return nullptr;
++    for (const auto& e : kEmotionMap) {
++        if (strcmp(e.name, emotion) == 0) return e.b;
++    }
++    if (known) *known = false;
++    return nullptr;
++}
++
++// ---- Reflexes (laser guard) ----------------------------------------------
++// Short blind back-up (<= 400 ms), then turn away in a random direction.
++static const Step kReflexCliffSteps[] = {
++    {-35, -35, +40, 0, 0, 380, 0, 0},
++    {+45, -45, 0, 0, 0, 600, 500, M},
++    {0, 0, 0, 0, 0, 150, 0, 0},
++};
++static const Step kReflexObstacleSteps[] = {
++    {-30, -30, +20, 0, 0, 300, 0, 0},
++    {+45, -45, 0, 0, 0, 400, 400, M},
++    {0, 0, 0, 0, 0, 120, 0, 0},
++};
++const Behavior kReflexCliff = {"reflex_cliff", kReflexCliffSteps, 3, false, 450, 0};
++const Behavior kReflexObstacle = {"reflex_obstacle", kReflexObstacleSteps, 3, false, 350, 0};
++
++// ---- Idle wandering ("đi qua đi lại, xoay tròn ngẫu nhiên") ---------------
++static const Step kWRollSteps[] = {{+30, +30, 0, 0, 0, 900, 1100, 0}};
++static const Step kWTurnSteps[] = {{+38, -38, 0, 0, 0, 300, 500, M}};
++static const Step kWSpinSteps[] = {{+45, -45, +10, 0, 0, 1000, 1000, M}};
++static const Step kWShuffleSteps[] = {
++    {+25, +25, 0, 0, 0, 400, 0, 0},
++    {-25, -25, 0, 0, 0, 350, 0, 0},
++};
++static const Step kWLookSteps[] = {
++    {0, 0, +25, 0, 0, 700, 400, 0},
++    {0, 0, -20, 0, 0, 700, 400, 0},
++    {0, 0, +5, 0, 0, 500, 0, 0},
++};
++static const Behavior kWRoll = {"wander_roll", kWRollSteps, 1, false, 0, 0};
++static const Behavior kWTurn = {"wander_turn", kWTurnSteps, 1, false, 0, 0};
++static const Behavior kWSpin = {"wander_spin", kWSpinSteps, 1, false, 0, 0};
++static const Behavior kWShuffle = {"wander_shuffle", kWShuffleSteps, 2, false, 400, 0};
++static const Behavior kWLook = {"wander_look", kWLookSteps, 3, false, 0, 0};
++
++const Behavior* const kWanderBehaviors[] = {&kWRoll, &kWTurn, &kWSpin, &kWShuffle, &kWLook};
++const uint8_t kWanderWeights[] = {3, 3, 2, 1, 2};
++const size_t kWanderCount = sizeof(kWanderBehaviors) / sizeof(kWanderBehaviors[0]);
++
++}  // namespace robot
+diff --git a/main/robot_base/robot_controller.cc b/main/robot_base/robot_controller.cc
+new file mode 100644
+index 0000000..892a3cd
+--- /dev/null
++++ b/main/robot_base/robot_controller.cc
+@@ -0,0 +1,225 @@
++#include "robot_controller.h"
++
++#include <string.h>
++
++namespace robot {
++
++RobotController::RobotController(const ControllerConfig& cfg, uint32_t seed)
++    : cfg_(cfg), emo_(seed * 2654435761u + 1), wan_(seed * 40503u + 7), ref_(seed * 69069u + 3) {}
++
++void RobotController::SetEmotion(const char* name) {
++    bool known = false;
++    const Behavior* b = FindEmotionBehavior(name, &known);
++    if (!known) return;                                  // unknown label: keep what we are doing
++    strncpy(last_emotion_, (name && *name) ? name : "neutral", sizeof(last_emotion_) - 1);
++    last_emotion_[sizeof(last_emotion_) - 1] = '\0';
++    if (!b) {                                            // neutral
++        emo_.Stop();
++        emo_active_ = false;
++        return;
++    }
++    if (emo_active_ && emo_.behavior() == b) {           // same emotion repeated: just refresh the timer
++        emo_age_ = 0;
++        return;
++    }
++    emo_.Start(b);
++    emo_active_ = true;
++    emo_age_ = 0;
++    wan_.Stop();
++    wander_pause_ms_ = 3000;
++}
++
++void RobotController::EndEmotion() {
++    emo_.Stop();
++    emo_active_ = false;
++    strcpy(last_emotion_, "neutral");
++    if (cfg_.face_reaction) pending_face_ = "neutral";
++}
++
++void RobotController::ManualMove(int l, int r, uint32_t dur_ms) {
++    if (l > 100) l = 100;
++    if (l < -100) l = -100;
++    if (r > 100) r = 100;
++    if (r < -100) r = -100;
++    man_l_ = l;
++    man_r_ = r;
++    man_ms_ = dur_ms;
++}
++
++void RobotController::ManualHead(int pose, uint32_t hold_ms) {
++    if (pose > 100) pose = 100;
++    if (pose < -100) pose = -100;
++    head_pose_ = pose;
++    head_hold_ms_ = hold_ms;
++}
++
++void RobotController::Stop() {
++    man_ms_ = 0;
++    head_hold_ms_ = 0;
++    emo_.Stop();
++    emo_active_ = false;
++    ref_.Stop();
++    reflex_active_ = false;
++    wan_.Stop();
++    wander_pause_ms_ = 3000;
++}
++
++const Behavior* RobotController::PickWander() {
++    uint32_t total = 0;
++    for (size_t i = 0; i < kWanderCount; i++) total += kWanderWeights[i];
++    uint32_t pick = wan_.Rand() % total;
++    for (size_t i = 0; i < kWanderCount; i++) {
++        if (pick < kWanderWeights[i]) return kWanderBehaviors[i];
++        pick -= kWanderWeights[i];
++    }
++    return kWanderBehaviors[0];
++}
++
++void RobotController::StartReflex(Hazard h) {
++    ref_.Start(h == Hazard::kCliff ? &kReflexCliff : &kReflexObstacle);
++    reflex_active_ = true;
++    man_ms_ = 0;                 // a reflex cancels manual driving
++    wan_.Stop();
++    wander_pause_ms_ = 800;
++    if (cfg_.face_reaction) pending_face_ = (h == Hazard::kCliff) ? "shocked" : "surprised";
++
++    // stuck detection: 6 reflexes within 20 s => stop moving for a while
++    for (int i = 0; i < 5; i++) reflex_hist_[i] = reflex_hist_[i + 1];
++    reflex_hist_[5] = now_ms_;
++    if (reflex_hist_n_ < 6) reflex_hist_n_++;
++    if (reflex_hist_n_ == 6 && now_ms_ - reflex_hist_[0] <= 20000) {
++        stuck_ms_ = 15000;
++        reflex_hist_n_ = 0;
++        if (cfg_.face_reaction) pending_face_ = "confused";
++    }
++}
++
++ControllerOutput RobotController::Tick(const ControllerInput& in) {
++    ControllerOutput out;
++    const uint32_t dt = in.dt_ms;
++    now_ms_ += dt;
++    pending_face_ = nullptr;
++
++    const bool loco_ok = in.sensor_ok || cfg_.allow_no_sensor;
++    const bool quiet = cfg_.stop_when_listening && in.listening;
++    if (stuck_ms_ > 0) stuck_ms_ = stuck_ms_ > dt ? stuck_ms_ - dt : 0;
++
++    auto gate = [&](int& a, int& b) {
++        if (!loco_ok || quiet || stuck_ms_ > 0) { a = 0; b = 0; }
++        if (!cfg_.blind_reverse && a + b < 0) { a = 0; b = 0; }
++    };
++
++    int l = 0, r = 0;
++    float head = in.listening ? (float)cfg_.listening_head : 0.f;
++    Mode mode = Mode::kRest;
++
++    if (!reflex_active_) {
++        // ---- intent from the normal sources: manual > emotion > wander > rest
++        if (man_ms_ > 0) {
++            l = man_l_;
++            r = man_r_;
++            man_ms_ = man_ms_ > dt ? man_ms_ - dt : 0;
++            mode = Mode::kManual;
++        } else if (emo_active_) {
++            PlayerOut po = emo_.Tick(dt);
++            l = po.left;
++            r = po.right;
++            head = po.head;
++            emo_age_ += dt;
++            mode = Mode::kEmotion;
++            if (emo_age_ >= cfg_.emotion_max_ms) EndEmotion();
++        } else if (cfg_.wander && in.idle) {
++            if (wan_.active()) {
++                PlayerOut po = wan_.Tick(dt);
++                l = po.left;
++                r = po.right;
++                head = po.head;
++                mode = Mode::kWander;
++                if (po.finished) {
++                    wan_.Stop();
++                    wander_pause_ms_ = 1500 + (int32_t)(wan_.Rand() % 3000u);
++                }
++            } else {
++                wander_pause_ms_ -= (int32_t)dt;
++                if (wander_pause_ms_ <= 0) wan_.Start(PickWander());
++            }
++        }
++        gate(l, r);
++
++        // ---- laser reflex: only when we are really about to drive forward into a hazard
++        if ((in.hazard == Hazard::kCliff || in.hazard == Hazard::kObstacle) && in.sensor_ok &&
++            (l + r) > 10) {
++            StartReflex(in.hazard);
++        }
++    }
++
++    if (reflex_active_) {
++        PlayerOut po = ref_.Tick(dt);
++        l = po.left;
++        r = po.right;
++        head = po.head;
++        mode = Mode::kReflex;
++        gate(l, r);
++        if (po.finished) {
++            reflex_active_ = false;
++            ref_.Stop();
++            if (cfg_.face_reaction && !pending_face_) pending_face_ = last_emotion_;
++        }
++    }
++    if (stuck_ms_ > 0) mode = Mode::kStuck;
++
++    // ---- final safety stage -------------------------------------------------
++    // 1) contiguous reverse cap (nothing looks behind the robot)
++    bool want_rev = (l + r) < 0;
++    if (rev_block_ms_ > 0) {
++        rev_block_ms_ -= (int32_t)dt;
++        if (want_rev) { l = 0; r = 0; want_rev = false; }
++    }
++    if (want_rev) {
++        rev_run_ms_ += dt;
++        if (rev_run_ms_ > cfg_.reverse_max_ms) {
++            l = 0; r = 0;
++            rev_block_ms_ = 600;
++            rev_run_ms_ = 0;
++        }
++    } else {
++        rev_run_ms_ = 0;
++    }
++    // 2) never drive net-forward while the guard reports anything but a clear floor
++    if (in.sensor_ok && in.hazard != Hazard::kNone) RemoveNetForward(l, r);
++
++    // head override from the MCP tool
++    if (head_hold_ms_ > 0) {
++        head = (float)head_pose_;
++        head_hold_ms_ = head_hold_ms_ > dt ? head_hold_ms_ - dt : 0;
++    }
++
++    mode_ = mode;
++    out.left = l;
++    out.right = r;
++    out.head = head;
++    out.face = pending_face_;
++    return out;
++}
++
++const char* RobotController::ModeName() const {
++    switch (mode_) {
++        case Mode::kRest: return "rest";
++        case Mode::kWander: return "wander";
++        case Mode::kEmotion: return "emotion";
++        case Mode::kManual: return "manual";
++        case Mode::kReflex: return "reflex";
++        case Mode::kStuck: return "stuck";
++    }
++    return "?";
++}
++
++const char* RobotController::BehaviorName() const {
++    if (reflex_active_ && ref_.behavior()) return ref_.behavior()->name;
++    if (man_ms_ > 0) return "manual";
++    if (emo_active_ && emo_.behavior()) return emo_.behavior()->name;
++    if (wan_.active() && wan_.behavior()) return wan_.behavior()->name;
++    return "";
++}
++
++}  // namespace robot
+diff --git a/main/robot_base/robot_controller.h b/main/robot_base/robot_controller.h
+new file mode 100644
+index 0000000..d76da5a
+--- /dev/null
++++ b/main/robot_base/robot_controller.h
+@@ -0,0 +1,79 @@
++// Decision layer: turns emotions / commands / idle wandering into wheel + head targets,
++// and enforces every safety rule. Pure C++ (no ESP-IDF) so it can be tested on a PC.
++#pragma once
++#include "robot_logic.h"
++
++namespace robot {
++
++struct ControllerConfig {
++    bool wander = true;               // idle wandering when device is idle
++    bool stop_when_listening = true;  // wheels silent while the device is listening to the user
++    bool allow_no_sensor = false;     // DANGEROUS: allow driving when the laser guard is not working
++    bool blind_reverse = true;        // allow reversing (there is no rear sensor)
++    uint16_t reverse_max_ms = 700;    // max contiguous reverse time
++    uint32_t emotion_max_ms = 90000;  // an emotion behavior falls back to neutral after this
++    bool face_reaction = true;        // ask the display for surprised/shocked on reflex
++    int listening_head = 15;          // head pose while listening
++};
++
++struct ControllerInput {
++    uint32_t dt_ms = 20;
++    Hazard hazard = Hazard::kUnknown;
++    bool sensor_ok = false;  // laser guard alive: fresh samples and no I2C fault
++    bool listening = false;  // DeviceState == listening
++    bool idle = false;       // DeviceState == idle
++};
++
++struct ControllerOutput {
++    int left = 0;                 // percent -100..100, already safety-filtered
++    int right = 0;
++    float head = 0;               // pose -100..100
++    const char* face = nullptr;   // non-null: ask the display to show this emotion now
++};
++
++enum class Mode : uint8_t { kRest, kWander, kEmotion, kManual, kReflex, kStuck };
++
++class RobotController {
++public:
++    explicit RobotController(const ControllerConfig& cfg, uint32_t seed = 7);
++
++    void SetEmotion(const char* name);                 // "neutral" ends the current emotion
++    void ManualMove(int left, int right, uint32_t duration_ms);
++    void ManualHead(int pose, uint32_t hold_ms);
++    void Stop();                                       // cancel manual / emotion / reflex
++    void SetWander(bool on) { cfg_.wander = on; if (!on) wan_.Stop(); }
++    bool wander_enabled() const { return cfg_.wander; }
++
++    ControllerOutput Tick(const ControllerInput& in);
++
++    Mode mode() const { return mode_; }
++    const char* ModeName() const;
++    const char* BehaviorName() const;
++    const char* last_emotion() const { return last_emotion_; }
++
++private:
++    void StartReflex(Hazard h);
++    void EndEmotion();
++    const Behavior* PickWander();
++
++    ControllerConfig cfg_;
++    BehaviorPlayer emo_, wan_, ref_;
++    bool emo_active_ = false, reflex_active_ = false;
++    uint32_t emo_age_ = 0;
++    int man_l_ = 0, man_r_ = 0;
++    uint32_t man_ms_ = 0;
++    int head_pose_ = 0;
++    uint32_t head_hold_ms_ = 0;
++    int32_t wander_pause_ms_ = 1500;
++    uint32_t stuck_ms_ = 0;
++    uint32_t now_ms_ = 0;
++    uint32_t reflex_hist_[6] = {0};
++    uint8_t reflex_hist_n_ = 0;
++    uint32_t rev_run_ms_ = 0;
++    int32_t rev_block_ms_ = 0;
++    const char* pending_face_ = nullptr;
++    char last_emotion_[24] = "neutral";
++    Mode mode_ = Mode::kRest;
++};
++
++}  // namespace robot
+diff --git a/main/robot_base/robot_emotion_hook.h b/main/robot_base/robot_emotion_hook.h
+new file mode 100644
+index 0000000..3dcbe9a
+--- /dev/null
++++ b/main/robot_base/robot_emotion_hook.h
+@@ -0,0 +1,18 @@
++// Tiny hook so the robot base can follow the emotion that xiaozhi sends to the display,
++// regardless of the display type (OLED Mochi face or TFT robot eyes).
++// application.cc calls RobotEmotionHook::Notify(...) right after display->SetEmotion(...).
++#pragma once
++#include <functional>
++#include <utility>
++
++namespace RobotEmotionHook {
++using Handler = std::function<void(const char*)>;
++inline Handler& handler() {
++    static Handler h;
++    return h;
++}
++inline void Set(Handler h) { handler() = std::move(h); }
++inline void Notify(const char* emotion) {
++    if (handler()) handler()(emotion);
++}
++}  // namespace RobotEmotionHook
+diff --git a/main/robot_base/robot_logic.cc b/main/robot_base/robot_logic.cc
+new file mode 100644
+index 0000000..c9f0f40
+--- /dev/null
++++ b/main/robot_base/robot_logic.cc
+@@ -0,0 +1,169 @@
++#include "robot_logic.h"
++
++#include <math.h>
++#include <string.h>
++
++namespace robot {
++
++const char* HazardName(Hazard h) {
++    switch (h) {
++        case Hazard::kUnknown: return "unknown";
++        case Hazard::kNone: return "none";
++        case Hazard::kObstacle: return "obstacle";
++        case Hazard::kCliff: return "cliff";
++        case Hazard::kSensorFault: return "sensor_fault";
++    }
++    return "?";
++}
++
++// ---------------------------------------------------------------------------
++void HazardClassifier::Reset() {
++    cur_ = Hazard::kUnknown;
++    pending_ = Hazard::kUnknown;
++    pend_n_ = 0;
++}
++
++Hazard HazardClassifier::Feed(uint16_t raw_mm, bool io_ok) {
++    Hazard cand;
++    if (!io_ok) {
++        cand = Hazard::kSensorFault;
++    } else if (raw_mm >= cfg_.no_echo_mm) {
++        cand = Hazard::kCliff;                       // no echo: fail safe, treat as a drop
++    } else if (raw_mm > cfg_.cliff_mm) {
++        cand = Hazard::kCliff;
++    } else if (raw_mm < cfg_.min_valid_mm) {
++        cand = Hazard::kObstacle;                    // touching / too close
++    } else if (floor_mm_ > 0 && (uint32_t)raw_mm + cfg_.obstacle_margin_mm < floor_mm_) {
++        cand = Hazard::kObstacle;
++    } else {
++        cand = Hazard::kNone;
++    }
++
++    if (cand == pending_) {
++        if (pend_n_ < 255) pend_n_++;
++    } else {
++        pending_ = cand;
++        pend_n_ = 1;
++    }
++    uint8_t need = cfg_.enter_count;
++    if (cand == Hazard::kNone) need = cfg_.clear_count;
++    else if (cand == Hazard::kSensorFault) need = cfg_.fault_count;
++    if (pend_n_ >= need) cur_ = cand;
++    return cur_;
++}
++
++bool ComputeFloor(uint16_t* s, size_t n, uint16_t cliff_mm, uint16_t* floor_out) {
++    if (n < 10) return false;
++    for (size_t i = 1; i < n; i++) {           // insertion sort
++        uint16_t v = s[i];
++        size_t j = i;
++        while (j > 0 && s[j - 1] > v) { s[j] = s[j - 1]; j--; }
++        s[j] = v;
++    }
++    uint16_t med = s[n / 2];
++    uint16_t p10 = s[n / 10];
++    uint16_t p90 = s[n - 1 - n / 10];
++    if (p90 - p10 > 15) return false;                    // too noisy
++    if (med + 15 > cliff_mm) return false;               // floor must be clearly below the cliff threshold
++    if (med < 30) return false;                          // too close to be a floor
++    *floor_out = med;
++    return true;
++}
++
++// ---------------------------------------------------------------------------
++uint32_t BehaviorPlayer::Rand() {
++    uint32_t x = rng_;
++    x ^= x << 13;
++    x ^= x >> 17;
++    x ^= x << 5;
++    rng_ = x ? x : 1;
++    return rng_;
++}
++
++void BehaviorPlayer::BeginStep(uint8_t idx) {
++    idx_ = idx;
++    const Step& s = b_->steps[idx];
++    step_elapsed_ = 0;
++    step_dur_ = s.dur_ms + (s.jitter_ms ? (Rand() % (s.jitter_ms + 1u)) : 0u);
++    mirror_ = (s.flags & kFlagMirror) && (Rand() & 1);
++}
++
++void BehaviorPlayer::Start(const Behavior* b) {
++    b_ = b;
++    total_ = 0;
++    rev_used_ = 0;
++    done_ = false;
++    if (b_ && b_->count > 0) BeginStep(0);
++    else b_ = nullptr;
++}
++
++PlayerOut BehaviorPlayer::Tick(uint32_t dt_ms) {
++    PlayerOut out;
++    if (!b_) { out.finished = true; return out; }
++
++    total_ += dt_ms;
++    if (b_->max_total_ms && total_ >= b_->max_total_ms) done_ = true;
++
++    const Step& s = b_->steps[idx_];
++    float head = (float)s.head;
++    if (!done_ && s.osc_ms > 0 && s.osc_amp > 0) {
++        head += (float)s.osc_amp * sinf(6.2831853f * (float)(total_ % 600000u) / (float)s.osc_ms);
++    }
++    if (head > 100) head = 100;
++    if (head < -100) head = -100;
++    out.head = head;
++
++    if (done_) {                       // hold the last pose, wheels stopped
++        out.finished = true;
++        return out;
++    }
++
++    int l = s.left, r = s.right;
++    if (mirror_) { int t = l; l = r; r = t; }
++    if (l + r < 0) {                   // net reverse: spend the reverse budget
++        rev_used_ += dt_ms;
++        if (b_->max_reverse_ms && rev_used_ > b_->max_reverse_ms) { l = 0; r = 0; }
++    }
++    out.left = l;
++    out.right = r;
++
++    step_elapsed_ += dt_ms;
++    if (step_elapsed_ >= step_dur_) {
++        uint8_t next = idx_ + 1;
++        if (next >= b_->count) {
++            if (b_->loop) next = 0;
++            else { done_ = true; return out; }
++        }
++        BeginStep(next);
++    }
++    return out;
++}
++
++// ---------------------------------------------------------------------------
++void RemoveNetForward(int& l, int& r) {
++    int s = l + r;
++    if (s > 0) {
++        l -= s / 2;
++        r -= s - s / 2;
++    }
++}
++
++int ToDutyPercent(int s, int min_start_pct, int max_pct) {
++    if (s == 0) return 0;
++    int a = s < 0 ? -s : s;
++    if (a > 100) a = 100;
++    if (max_pct < min_start_pct) max_pct = min_start_pct;
++    int duty = min_start_pct + (max_pct - min_start_pct) * a / 100;
++    return s < 0 ? -duty : duty;
++}
++
++float RampToward(float cur, float target, float dt_s, float accel, float decel) {
++    bool speeding_up = fabsf(target) > fabsf(cur) && (target * cur >= 0);
++    float step = (speeding_up ? accel : decel) * dt_s;
++    float diff = target - cur;
++    if (diff > step) return cur + step;
++    if (diff < -step) return cur - step;
++    return target;
++}
++
++}  // namespace robot
+diff --git a/main/robot_base/robot_logic.h b/main/robot_base/robot_logic.h
+new file mode 100644
+index 0000000..c08820c
+--- /dev/null
++++ b/main/robot_base/robot_logic.h
+@@ -0,0 +1,128 @@
++// Pure C++ logic for the xiaozhi robot base (no ESP-IDF dependency, unit-testable on a PC).
++//  - HazardClassifier : VL53L0X distance -> {none, obstacle, cliff, fault}
++//  - BehaviorPlayer   : plays a table of timed steps (wheels + head pose)
++//  - helpers          : forward-inhibit filter, duty mapping, ramps
++#pragma once
++#include <stddef.h>
++#include <stdint.h>
++
++namespace robot {
++
++// ---------------------------------------------------------------------------
++// Hazard classification
++// ---------------------------------------------------------------------------
++enum class Hazard : uint8_t {
++    kUnknown = 0,   // not calibrated / no valid sample yet  -> forward is inhibited
++    kNone,          // floor ahead looks normal
++    kObstacle,      // something closer than the calibrated floor distance
++    kCliff,         // floor farther than the cliff threshold, or no echo at all
++    kSensorFault,   // I2C / sensor failure
++};
++const char* HazardName(Hazard h);
++
++struct HazardConfig {
++    uint16_t cliff_mm = 150;           // reading above this => drop / table edge
++    uint16_t obstacle_margin_mm = 30;  // reading below (floor - margin) => obstacle
++    uint16_t min_valid_mm = 30;        // below this the sensor is too close => obstacle
++    uint16_t no_echo_mm = 8000;        // VL53L0X reports ~8190 / 65535 when nothing is seen
++    uint8_t enter_count = 2;           // consecutive samples to enter a hazard
++    uint8_t clear_count = 3;           // consecutive clean samples to clear it
++    uint8_t fault_count = 3;           // consecutive I2C failures => kSensorFault
++};
++
++class HazardClassifier {
++public:
++    void Configure(const HazardConfig& c) { cfg_ = c; }
++    const HazardConfig& config() const { return cfg_; }
++    void SetFloor(uint16_t floor_mm) { floor_mm_ = floor_mm; }   // 0 = obstacle detection off
++    uint16_t floor_mm() const { return floor_mm_; }
++    void Reset();
++    // raw_mm: sensor reading; io_ok=false when the I2C read failed / timed out
++    Hazard Feed(uint16_t raw_mm, bool io_ok);
++    Hazard current() const { return cur_; }
++
++private:
++    HazardConfig cfg_;
++    uint16_t floor_mm_ = 0;
++    Hazard cur_ = Hazard::kUnknown;
++    Hazard pending_ = Hazard::kUnknown;
++    uint8_t pend_n_ = 0;
++};
++
++// Median-based floor calibration. Returns false when the samples are too few,
++// too noisy, or the floor is not clearly below the cliff threshold.
++bool ComputeFloor(uint16_t* samples, size_t n, uint16_t cliff_mm, uint16_t* floor_out);
++
++// ---------------------------------------------------------------------------
++// Behaviors (timed step tables)
++// ---------------------------------------------------------------------------
++enum : uint8_t { kFlagMirror = 1 };  // randomly swap left/right at step start (random turn direction)
++
++struct Step {
++    int8_t left;        // wheel command, percent -100..100
++    int8_t right;
++    int8_t head;        // head pose -100 (down) .. +100 (up)
++    uint8_t osc_amp;    // head oscillation amplitude (pose units)
++    uint16_t osc_ms;    // oscillation period, 0 = none
++    uint16_t dur_ms;
++    uint16_t jitter_ms; // + random 0..jitter_ms
++    uint8_t flags;
++};
++
++struct Behavior {
++    const char* name;
++    const Step* steps;
++    uint8_t count;
++    bool loop;
++    uint16_t max_reverse_ms;  // total time allowed with net-reverse wheels per run (0 = unlimited)
++    uint32_t max_total_ms;    // 0 = until stopped
++};
++
++struct PlayerOut {
++    int left = 0;
++    int right = 0;
++    float head = 0;
++    bool finished = false;
++};
++
++class BehaviorPlayer {
++public:
++    explicit BehaviorPlayer(uint32_t seed = 12345) : rng_(seed ? seed : 1) {}
++    void Start(const Behavior* b);
++    void Stop() { b_ = nullptr; }
++    bool active() const { return b_ != nullptr; }
++    const Behavior* behavior() const { return b_; }
++    PlayerOut Tick(uint32_t dt_ms);
++    uint32_t Rand();  // shared RNG (xorshift32)
++
++private:
++    void BeginStep(uint8_t idx);
++    const Behavior* b_ = nullptr;
++    uint8_t idx_ = 0;
++    uint32_t step_elapsed_ = 0, step_dur_ = 0, total_ = 0, rev_used_ = 0;
++    bool mirror_ = false, done_ = false;
++    uint32_t rng_;
++};
++
++// ---------------------------------------------------------------------------
++// Motor helpers
++// ---------------------------------------------------------------------------
++// Remove the net-forward component (keeps rotation). (l+r) > 0  =>  (l+r) == 0
++void RemoveNetForward(int& l, int& r);
++// Map -100..100 to signed duty percent with start-up deadzone compensation.
++int ToDutyPercent(int s, int min_start_pct, int max_pct);
++// Slew-rate limiter (units/s). Uses accel when speeding up, decel otherwise.
++float RampToward(float cur, float target, float dt_s, float accel, float decel);
++
++// ---------------------------------------------------------------------------
++// Behavior tables
++// ---------------------------------------------------------------------------
++// nullptr for "neutral"/unknown. *known = false when the name is not recognised.
++const Behavior* FindEmotionBehavior(const char* emotion, bool* known);
++extern const Behavior kReflexCliff;
++extern const Behavior kReflexObstacle;
++extern const Behavior* const kWanderBehaviors[];
++extern const uint8_t kWanderWeights[];
++extern const size_t kWanderCount;
++
++}  // namespace robot
+diff --git a/main/robot_base/vl53l0x.cc b/main/robot_base/vl53l0x.cc
+new file mode 100644
+index 0000000..eec2747
+--- /dev/null
++++ b/main/robot_base/vl53l0x.cc
+@@ -0,0 +1,1030 @@
++// Port of the Pololu VL53L0X Arduino library (MIT license, see LICENSE below)
++// to ESP-IDF i2c_master. Only the I2C/timing layer was replaced; the ST-derived
++// init and ranging sequences are unchanged.
++//
++// Copyright (c) 2017-2022 Pololu Corporation. https://www.pololu.com/
++// Permission is hereby granted, free of charge, to any person obtaining a copy
++// of this software and associated documentation files (the "Software"), to deal
++// in the Software without restriction, including without limitation the rights
++// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++// copies of the Software, and to permit persons to whom the Software is
++// furnished to do so, subject to the conditions of the original MIT license.
++// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
++
++// Most of the functionality of this library is based on the VL53L0X API
++// provided by ST (STSW-IMG005), and some of the explanatory comments are quoted
++// or paraphrased from the API source code, API user manual (UM2039), and the
++// VL53L0X datasheet.
++
++#include "vl53l0x.h"
++#include <esp_timer.h>
++#include <esp_log.h>
++
++// Defines /////////////////////////////////////////////////////////////////////
++
++// The Arduino two-wire interface uses a 7-bit number for the address,
++// and sets the last bit correctly based on reads and writes
++#define ADDRESS_DEFAULT 0b0101001
++
++// Record the current time to check an upcoming timeout against
++#define startTimeout() (timeout_start_ms = (uint32_t)(esp_timer_get_time() / 1000))
++
++// Check if timeout is enabled (set to nonzero value) and has expired
++#define checkTimeoutExpired() (io_timeout > 0 && ((uint32_t)((uint32_t)(esp_timer_get_time() / 1000) - timeout_start_ms) > io_timeout))
++
++// Decode VCSEL (vertical cavity surface emitting laser) pulse period in PCLKs
++// from register value
++// based on VL53L0X_decode_vcsel_period()
++#define decodeVcselPeriod(reg_val)      (((reg_val) + 1) << 1)
++
++// Encode VCSEL pulse period register value from period in PCLKs
++// based on VL53L0X_encode_vcsel_period()
++#define encodeVcselPeriod(period_pclks) (((period_pclks) >> 1) - 1)
++
++// Calculate macro period in *nanoseconds* from VCSEL period in PCLKs
++// based on VL53L0X_calc_macro_period_ps()
++// PLL_period_ps = 1655; macro_period_vclks = 2304
++#define calcMacroPeriod(vcsel_period_pclks) ((((uint32_t)2304 * (vcsel_period_pclks) * 1655) + 500) / 1000)
++
++// Constructors ////////////////////////////////////////////////////////////////
++
++VL53L0X::VL53L0X()
++  : bus_(nullptr)
++  , dev_(nullptr)
++  , address(ADDRESS_DEFAULT)
++  , io_timeout(0) // no timeout
++  , did_timeout(false)
++{
++}
++
++VL53L0X::~VL53L0X()
++{
++  if (dev_ != nullptr) {
++    i2c_master_bus_rm_device(dev_);
++    dev_ = nullptr;
++  }
++}
++
++bool VL53L0X::attach(i2c_master_bus_handle_t bus, uint8_t addr7, uint32_t scl_hz)
++{
++  bus_ = bus;
++  address = addr7;
++  if (dev_ != nullptr) {
++    i2c_master_bus_rm_device(dev_);
++    dev_ = nullptr;
++  }
++  i2c_device_config_t cfg = {};
++  cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
++  cfg.device_address = addr7;
++  cfg.scl_speed_hz = scl_hz;
++  return i2c_master_bus_add_device(bus_, &cfg, &dev_) == ESP_OK;
++}
++
++// Public Methods //////////////////////////////////////////////////////////////
++
++void VL53L0X::setAddress(uint8_t new_addr)
++{
++  writeReg(I2C_SLAVE_DEVICE_ADDRESS, new_addr & 0x7F);
++  attach(bus_, new_addr);
++}
++
++// Initialize sensor using sequence based on VL53L0X_DataInit(),
++// VL53L0X_StaticInit(), and VL53L0X_PerformRefCalibration().
++// This function does not perform reference SPAD calibration
++// (VL53L0X_PerformRefSpadManagement()), since the API user manual says that it
++// is performed by ST on the bare modules; it seems like that should work well
++// enough unless a cover glass is added.
++// If io_2v8 (optional) is true or not given, the sensor is configured for 2V8
++// mode.
++bool VL53L0X::init(bool io_2v8)
++{
++  // check model ID register (value specified in datasheet)
++  if (readReg(IDENTIFICATION_MODEL_ID) != 0xEE) { return false; }
++
++  // VL53L0X_DataInit() begin
++
++  // sensor uses 1V8 mode for I/O by default; switch to 2V8 mode if necessary
++  if (io_2v8)
++  {
++    writeReg(VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV,
++      readReg(VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV) | 0x01); // set bit 0
++  }
++
++  // "Set I2C standard mode"
++  writeReg(0x88, 0x00);
++
++  writeReg(0x80, 0x01);
++  writeReg(0xFF, 0x01);
++  writeReg(0x00, 0x00);
++  stop_variable = readReg(0x91);
++  writeReg(0x00, 0x01);
++  writeReg(0xFF, 0x00);
++  writeReg(0x80, 0x00);
++
++  // disable SIGNAL_RATE_MSRC (bit 1) and SIGNAL_RATE_PRE_RANGE (bit 4) limit checks
++  writeReg(MSRC_CONFIG_CONTROL, readReg(MSRC_CONFIG_CONTROL) | 0x12);
++
++  // set final range signal rate limit to 0.25 MCPS (million counts per second)
++  setSignalRateLimit(0.25);
++
++  writeReg(SYSTEM_SEQUENCE_CONFIG, 0xFF);
++
++  // VL53L0X_DataInit() end
++
++  // VL53L0X_StaticInit() begin
++
++  uint8_t spad_count;
++  bool spad_type_is_aperture;
++  if (!getSpadInfo(&spad_count, &spad_type_is_aperture)) { return false; }
++
++  // The SPAD map (RefGoodSpadMap) is read by VL53L0X_get_info_from_device() in
++  // the API, but the same data seems to be more easily readable from
++  // GLOBAL_CONFIG_SPAD_ENABLES_REF_0 through _6, so read it from there
++  uint8_t ref_spad_map[6];
++  readMulti(GLOBAL_CONFIG_SPAD_ENABLES_REF_0, ref_spad_map, 6);
++
++  // -- VL53L0X_set_reference_spads() begin (assume NVM values are valid)
++
++  writeReg(0xFF, 0x01);
++  writeReg(DYNAMIC_SPAD_REF_EN_START_OFFSET, 0x00);
++  writeReg(DYNAMIC_SPAD_NUM_REQUESTED_REF_SPAD, 0x2C);
++  writeReg(0xFF, 0x00);
++  writeReg(GLOBAL_CONFIG_REF_EN_START_SELECT, 0xB4);
++
++  uint8_t first_spad_to_enable = spad_type_is_aperture ? 12 : 0; // 12 is the first aperture spad
++  uint8_t spads_enabled = 0;
++
++  for (uint8_t i = 0; i < 48; i++)
++  {
++    if (i < first_spad_to_enable || spads_enabled == spad_count)
++    {
++      // This bit is lower than the first one that should be enabled, or
++      // (reference_spad_count) bits have already been enabled, so zero this bit
++      ref_spad_map[i / 8] &= ~(1 << (i % 8));
++    }
++    else if ((ref_spad_map[i / 8] >> (i % 8)) & 0x1)
++    {
++      spads_enabled++;
++    }
++  }
++
++  writeMulti(GLOBAL_CONFIG_SPAD_ENABLES_REF_0, ref_spad_map, 6);
++
++  // -- VL53L0X_set_reference_spads() end
++
++  // -- VL53L0X_load_tuning_settings() begin
++  // DefaultTuningSettings from vl53l0x_tuning.h
++
++  writeReg(0xFF, 0x01);
++  writeReg(0x00, 0x00);
++
++  writeReg(0xFF, 0x00);
++  writeReg(0x09, 0x00);
++  writeReg(0x10, 0x00);
++  writeReg(0x11, 0x00);
++
++  writeReg(0x24, 0x01);
++  writeReg(0x25, 0xFF);
++  writeReg(0x75, 0x00);
++
++  writeReg(0xFF, 0x01);
++  writeReg(0x4E, 0x2C);
++  writeReg(0x48, 0x00);
++  writeReg(0x30, 0x20);
++
++  writeReg(0xFF, 0x00);
++  writeReg(0x30, 0x09);
++  writeReg(0x54, 0x00);
++  writeReg(0x31, 0x04);
++  writeReg(0x32, 0x03);
++  writeReg(0x40, 0x83);
++  writeReg(0x46, 0x25);
++  writeReg(0x60, 0x00);
++  writeReg(0x27, 0x00);
++  writeReg(0x50, 0x06);
++  writeReg(0x51, 0x00);
++  writeReg(0x52, 0x96);
++  writeReg(0x56, 0x08);
++  writeReg(0x57, 0x30);
++  writeReg(0x61, 0x00);
++  writeReg(0x62, 0x00);
++  writeReg(0x64, 0x00);
++  writeReg(0x65, 0x00);
++  writeReg(0x66, 0xA0);
++
++  writeReg(0xFF, 0x01);
++  writeReg(0x22, 0x32);
++  writeReg(0x47, 0x14);
++  writeReg(0x49, 0xFF);
++  writeReg(0x4A, 0x00);
++
++  writeReg(0xFF, 0x00);
++  writeReg(0x7A, 0x0A);
++  writeReg(0x7B, 0x00);
++  writeReg(0x78, 0x21);
++
++  writeReg(0xFF, 0x01);
++  writeReg(0x23, 0x34);
++  writeReg(0x42, 0x00);
++  writeReg(0x44, 0xFF);
++  writeReg(0x45, 0x26);
++  writeReg(0x46, 0x05);
++  writeReg(0x40, 0x40);
++  writeReg(0x0E, 0x06);
++  writeReg(0x20, 0x1A);
++  writeReg(0x43, 0x40);
++
++  writeReg(0xFF, 0x00);
++  writeReg(0x34, 0x03);
++  writeReg(0x35, 0x44);
++
++  writeReg(0xFF, 0x01);
++  writeReg(0x31, 0x04);
++  writeReg(0x4B, 0x09);
++  writeReg(0x4C, 0x05);
++  writeReg(0x4D, 0x04);
++
++  writeReg(0xFF, 0x00);
++  writeReg(0x44, 0x00);
++  writeReg(0x45, 0x20);
++  writeReg(0x47, 0x08);
++  writeReg(0x48, 0x28);
++  writeReg(0x67, 0x00);
++  writeReg(0x70, 0x04);
++  writeReg(0x71, 0x01);
++  writeReg(0x72, 0xFE);
++  writeReg(0x76, 0x00);
++  writeReg(0x77, 0x00);
++
++  writeReg(0xFF, 0x01);
++  writeReg(0x0D, 0x01);
++
++  writeReg(0xFF, 0x00);
++  writeReg(0x80, 0x01);
++  writeReg(0x01, 0xF8);
++
++  writeReg(0xFF, 0x01);
++  writeReg(0x8E, 0x01);
++  writeReg(0x00, 0x01);
++  writeReg(0xFF, 0x00);
++  writeReg(0x80, 0x00);
++
++  // -- VL53L0X_load_tuning_settings() end
++
++  // "Set interrupt config to new sample ready"
++  // -- VL53L0X_SetGpioConfig() begin
++
++  writeReg(SYSTEM_INTERRUPT_CONFIG_GPIO, 0x04);
++  writeReg(GPIO_HV_MUX_ACTIVE_HIGH, readReg(GPIO_HV_MUX_ACTIVE_HIGH) & ~0x10); // active low
++  writeReg(SYSTEM_INTERRUPT_CLEAR, 0x01);
++
++  // -- VL53L0X_SetGpioConfig() end
++
++  measurement_timing_budget_us = getMeasurementTimingBudget();
++
++  // "Disable MSRC and TCC by default"
++  // MSRC = Minimum Signal Rate Check
++  // TCC = Target CentreCheck
++  // -- VL53L0X_SetSequenceStepEnable() begin
++
++  writeReg(SYSTEM_SEQUENCE_CONFIG, 0xE8);
++
++  // -- VL53L0X_SetSequenceStepEnable() end
++
++  // "Recalculate timing budget"
++  setMeasurementTimingBudget(measurement_timing_budget_us);
++
++  // VL53L0X_StaticInit() end
++
++  // VL53L0X_PerformRefCalibration() begin (VL53L0X_perform_ref_calibration())
++
++  // -- VL53L0X_perform_vhv_calibration() begin
++
++  writeReg(SYSTEM_SEQUENCE_CONFIG, 0x01);
++  if (!performSingleRefCalibration(0x40)) { return false; }
++
++  // -- VL53L0X_perform_vhv_calibration() end
++
++  // -- VL53L0X_perform_phase_calibration() begin
++
++  writeReg(SYSTEM_SEQUENCE_CONFIG, 0x02);
++  if (!performSingleRefCalibration(0x00)) { return false; }
++
++  // -- VL53L0X_perform_phase_calibration() end
++
++  // "restore the previous Sequence Config"
++  writeReg(SYSTEM_SEQUENCE_CONFIG, 0xE8);
++
++  // VL53L0X_PerformRefCalibration() end
++
++  return true;
++}
++
++// ---- Low level I2C (ESP-IDF i2c_master) ------------------------------------
++#define VL53_I2C_TIMEOUT_MS 50
++
++// Write reg + payload (payload up to 4 bytes) in one transaction
++static esp_err_t vl53_write(i2c_master_dev_handle_t dev, uint8_t reg, const uint8_t* data, size_t len)
++{
++  uint8_t buf[1 + 32];
++  if (len > 32) return ESP_ERR_INVALID_SIZE;
++  buf[0] = reg;
++  for (size_t i = 0; i < len; i++) buf[1 + i] = data[i];
++  return i2c_master_transmit(dev, buf, 1 + len, VL53_I2C_TIMEOUT_MS);
++}
++
++// Write an 8-bit register
++void VL53L0X::writeReg(uint8_t reg, uint8_t value)
++{
++  last_status = (vl53_write(dev_, reg, &value, 1) == ESP_OK) ? 0 : 4;
++}
++
++// Write a 16-bit register
++void VL53L0X::writeReg16Bit(uint8_t reg, uint16_t value)
++{
++  uint8_t d[2] = {(uint8_t)(value >> 8), (uint8_t)value};
++  last_status = (vl53_write(dev_, reg, d, 2) == ESP_OK) ? 0 : 4;
++}
++
++// Write a 32-bit register
++void VL53L0X::writeReg32Bit(uint8_t reg, uint32_t value)
++{
++  uint8_t d[4] = {(uint8_t)(value >> 24), (uint8_t)(value >> 16), (uint8_t)(value >> 8), (uint8_t)value};
++  last_status = (vl53_write(dev_, reg, d, 4) == ESP_OK) ? 0 : 4;
++}
++
++// Read an 8-bit register
++uint8_t VL53L0X::readReg(uint8_t reg)
++{
++  uint8_t value = 0;
++  last_status = (i2c_master_transmit_receive(dev_, &reg, 1, &value, 1, VL53_I2C_TIMEOUT_MS) == ESP_OK) ? 0 : 4;
++  return value;
++}
++
++// Read a 16-bit register
++uint16_t VL53L0X::readReg16Bit(uint8_t reg)
++{
++  uint8_t d[2] = {0, 0};
++  last_status = (i2c_master_transmit_receive(dev_, &reg, 1, d, 2, VL53_I2C_TIMEOUT_MS) == ESP_OK) ? 0 : 4;
++  return ((uint16_t)d[0] << 8) | d[1];
++}
++
++// Read a 32-bit register
++uint32_t VL53L0X::readReg32Bit(uint8_t reg)
++{
++  uint8_t d[4] = {0, 0, 0, 0};
++  last_status = (i2c_master_transmit_receive(dev_, &reg, 1, d, 4, VL53_I2C_TIMEOUT_MS) == ESP_OK) ? 0 : 4;
++  return ((uint32_t)d[0] << 24) | ((uint32_t)d[1] << 16) | ((uint32_t)d[2] << 8) | d[3];
++}
++
++// Write an arbitrary number of bytes starting at the given register
++void VL53L0X::writeMulti(uint8_t reg, uint8_t const * src, uint8_t count)
++{
++  last_status = (vl53_write(dev_, reg, src, count) == ESP_OK) ? 0 : 4;
++}
++
++// Read an arbitrary number of bytes starting at the given register
++void VL53L0X::readMulti(uint8_t reg, uint8_t * dst, uint8_t count)
++{
++  last_status = (i2c_master_transmit_receive(dev_, &reg, 1, dst, count, VL53_I2C_TIMEOUT_MS) == ESP_OK) ? 0 : 4;
++}
++
++// Set the return signal rate limit check value in units of MCPS (mega counts
++// per second). "This represents the amplitude of the signal reflected from the
++// target and detected by the device"; setting this limit presumably determines
++// the minimum measurement necessary for the sensor to report a valid reading.
++// Setting a lower limit increases the potential range of the sensor but also
++// seems to increase the likelihood of getting an inaccurate reading because of
++// unwanted reflections from objects other than the intended target.
++// Defaults to 0.25 MCPS as initialized by the ST API and this library.
++bool VL53L0X::setSignalRateLimit(float limit_Mcps)
++{
++  if (limit_Mcps < 0 || limit_Mcps > 511.99) { return false; }
++
++  // Q9.7 fixed point format (9 integer bits, 7 fractional bits)
++  writeReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, limit_Mcps * (1 << 7));
++  return true;
++}
++
++// Get the return signal rate limit check value in MCPS
++float VL53L0X::getSignalRateLimit()
++{
++  return (float)readReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT) / (1 << 7);
++}
++
++// Set the measurement timing budget in microseconds, which is the time allowed
++// for one measurement; the ST API and this library take care of splitting the
++// timing budget among the sub-steps in the ranging sequence. A longer timing
++// budget allows for more accurate measurements. Increasing the budget by a
++// factor of N decreases the range measurement standard deviation by a factor of
++// sqrt(N). Defaults to about 33 milliseconds; the minimum is 20 ms.
++// based on VL53L0X_set_measurement_timing_budget_micro_seconds()
++bool VL53L0X::setMeasurementTimingBudget(uint32_t budget_us)
++{
++  SequenceStepEnables enables;
++  SequenceStepTimeouts timeouts;
++
++  uint16_t const StartOverhead     = 1910;
++  uint16_t const EndOverhead        = 960;
++  uint16_t const MsrcOverhead       = 660;
++  uint16_t const TccOverhead        = 590;
++  uint16_t const DssOverhead        = 690;
++  uint16_t const PreRangeOverhead   = 660;
++  uint16_t const FinalRangeOverhead = 550;
++
++  uint32_t used_budget_us = StartOverhead + EndOverhead;
++
++  getSequenceStepEnables(&enables);
++  getSequenceStepTimeouts(&enables, &timeouts);
++
++  if (enables.tcc)
++  {
++    used_budget_us += (timeouts.msrc_dss_tcc_us + TccOverhead);
++  }
++
++  if (enables.dss)
++  {
++    used_budget_us += 2 * (timeouts.msrc_dss_tcc_us + DssOverhead);
++  }
++  else if (enables.msrc)
++  {
++    used_budget_us += (timeouts.msrc_dss_tcc_us + MsrcOverhead);
++  }
++
++  if (enables.pre_range)
++  {
++    used_budget_us += (timeouts.pre_range_us + PreRangeOverhead);
++  }
++
++  if (enables.final_range)
++  {
++    used_budget_us += FinalRangeOverhead;
++
++    // "Note that the final range timeout is determined by the timing
++    // budget and the sum of all other timeouts within the sequence.
++    // If there is no room for the final range timeout, then an error
++    // will be set. Otherwise the remaining time will be applied to
++    // the final range."
++
++    if (used_budget_us > budget_us)
++    {
++      // "Requested timeout too big."
++      return false;
++    }
++
++    uint32_t final_range_timeout_us = budget_us - used_budget_us;
++
++    // set_sequence_step_timeout() begin
++    // (SequenceStepId == VL53L0X_SEQUENCESTEP_FINAL_RANGE)
++
++    // "For the final range timeout, the pre-range timeout
++    //  must be added. To do this both final and pre-range
++    //  timeouts must be expressed in macro periods MClks
++    //  because they have different vcsel periods."
++
++    uint32_t final_range_timeout_mclks =
++      timeoutMicrosecondsToMclks(final_range_timeout_us,
++                                 timeouts.final_range_vcsel_period_pclks);
++
++    if (enables.pre_range)
++    {
++      final_range_timeout_mclks += timeouts.pre_range_mclks;
++    }
++
++    writeReg16Bit(FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI,
++      encodeTimeout(final_range_timeout_mclks));
++
++    // set_sequence_step_timeout() end
++
++    measurement_timing_budget_us = budget_us; // store for internal reuse
++  }
++  return true;
++}
++
++// Get the measurement timing budget in microseconds
++// based on VL53L0X_get_measurement_timing_budget_micro_seconds()
++// in us
++uint32_t VL53L0X::getMeasurementTimingBudget()
++{
++  SequenceStepEnables enables;
++  SequenceStepTimeouts timeouts;
++
++  uint16_t const StartOverhead     = 1910;
++  uint16_t const EndOverhead        = 960;
++  uint16_t const MsrcOverhead       = 660;
++  uint16_t const TccOverhead        = 590;
++  uint16_t const DssOverhead        = 690;
++  uint16_t const PreRangeOverhead   = 660;
++  uint16_t const FinalRangeOverhead = 550;
++
++  // "Start and end overhead times always present"
++  uint32_t budget_us = StartOverhead + EndOverhead;
++
++  getSequenceStepEnables(&enables);
++  getSequenceStepTimeouts(&enables, &timeouts);
++
++  if (enables.tcc)
++  {
++    budget_us += (timeouts.msrc_dss_tcc_us + TccOverhead);
++  }
++
++  if (enables.dss)
++  {
++    budget_us += 2 * (timeouts.msrc_dss_tcc_us + DssOverhead);
++  }
++  else if (enables.msrc)
++  {
++    budget_us += (timeouts.msrc_dss_tcc_us + MsrcOverhead);
++  }
++
++  if (enables.pre_range)
++  {
++    budget_us += (timeouts.pre_range_us + PreRangeOverhead);
++  }
++
++  if (enables.final_range)
++  {
++    budget_us += (timeouts.final_range_us + FinalRangeOverhead);
++  }
++
++  measurement_timing_budget_us = budget_us; // store for internal reuse
++  return budget_us;
++}
++
++// Set the VCSEL (vertical cavity surface emitting laser) pulse period for the
++// given period type (pre-range or final range) to the given value in PCLKs.
++// Longer periods seem to increase the potential range of the sensor.
++// Valid values are (even numbers only):
++//  pre:  12 to 18 (initialized default: 14)
++//  final: 8 to 14 (initialized default: 10)
++// based on VL53L0X_set_vcsel_pulse_period()
++bool VL53L0X::setVcselPulsePeriod(vcselPeriodType type, uint8_t period_pclks)
++{
++  uint8_t vcsel_period_reg = encodeVcselPeriod(period_pclks);
++
++  SequenceStepEnables enables;
++  SequenceStepTimeouts timeouts;
++
++  getSequenceStepEnables(&enables);
++  getSequenceStepTimeouts(&enables, &timeouts);
++
++  // "Apply specific settings for the requested clock period"
++  // "Re-calculate and apply timeouts, in macro periods"
++
++  // "When the VCSEL period for the pre or final range is changed,
++  // the corresponding timeout must be read from the device using
++  // the current VCSEL period, then the new VCSEL period can be
++  // applied. The timeout then must be written back to the device
++  // using the new VCSEL period.
++  //
++  // For the MSRC timeout, the same applies - this timeout being
++  // dependant on the pre-range vcsel period."
++
++
++  if (type == VcselPeriodPreRange)
++  {
++    // "Set phase check limits"
++    switch (period_pclks)
++    {
++      case 12:
++        writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x18);
++        break;
++
++      case 14:
++        writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x30);
++        break;
++
++      case 16:
++        writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x40);
++        break;
++
++      case 18:
++        writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x50);
++        break;
++
++      default:
++        // invalid period
++        return false;
++    }
++    writeReg(PRE_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
++
++    // apply new VCSEL period
++    writeReg(PRE_RANGE_CONFIG_VCSEL_PERIOD, vcsel_period_reg);
++
++    // update timeouts
++
++    // set_sequence_step_timeout() begin
++    // (SequenceStepId == VL53L0X_SEQUENCESTEP_PRE_RANGE)
++
++    uint16_t new_pre_range_timeout_mclks =
++      timeoutMicrosecondsToMclks(timeouts.pre_range_us, period_pclks);
++
++    writeReg16Bit(PRE_RANGE_CONFIG_TIMEOUT_MACROP_HI,
++      encodeTimeout(new_pre_range_timeout_mclks));
++
++    // set_sequence_step_timeout() end
++
++    // set_sequence_step_timeout() begin
++    // (SequenceStepId == VL53L0X_SEQUENCESTEP_MSRC)
++
++    uint16_t new_msrc_timeout_mclks =
++      timeoutMicrosecondsToMclks(timeouts.msrc_dss_tcc_us, period_pclks);
++
++    writeReg(MSRC_CONFIG_TIMEOUT_MACROP,
++      (new_msrc_timeout_mclks > 256) ? 255 : (new_msrc_timeout_mclks - 1));
++
++    // set_sequence_step_timeout() end
++  }
++  else if (type == VcselPeriodFinalRange)
++  {
++    switch (period_pclks)
++    {
++      case 8:
++        writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x10);
++        writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW,  0x08);
++        writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x02);
++        writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x0C);
++        writeReg(0xFF, 0x01);
++        writeReg(ALGO_PHASECAL_LIM, 0x30);
++        writeReg(0xFF, 0x00);
++        break;
++
++      case 10:
++        writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x28);
++        writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW,  0x08);
++        writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x03);
++        writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x09);
++        writeReg(0xFF, 0x01);
++        writeReg(ALGO_PHASECAL_LIM, 0x20);
++        writeReg(0xFF, 0x00);
++        break;
++
++      case 12:
++        writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x38);
++        writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW,  0x08);
++        writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x03);
++        writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x08);
++        writeReg(0xFF, 0x01);
++        writeReg(ALGO_PHASECAL_LIM, 0x20);
++        writeReg(0xFF, 0x00);
++        break;
++
++      case 14:
++        writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x48);
++        writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW,  0x08);
++        writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x03);
++        writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x07);
++        writeReg(0xFF, 0x01);
++        writeReg(ALGO_PHASECAL_LIM, 0x20);
++        writeReg(0xFF, 0x00);
++        break;
++
++      default:
++        // invalid period
++        return false;
++    }
++
++    // apply new VCSEL period
++    writeReg(FINAL_RANGE_CONFIG_VCSEL_PERIOD, vcsel_period_reg);
++
++    // update timeouts
++
++    // set_sequence_step_timeout() begin
++    // (SequenceStepId == VL53L0X_SEQUENCESTEP_FINAL_RANGE)
++
++    // "For the final range timeout, the pre-range timeout
++    //  must be added. To do this both final and pre-range
++    //  timeouts must be expressed in macro periods MClks
++    //  because they have different vcsel periods."
++
++    uint16_t new_final_range_timeout_mclks =
++      timeoutMicrosecondsToMclks(timeouts.final_range_us, period_pclks);
++
++    if (enables.pre_range)
++    {
++      new_final_range_timeout_mclks += timeouts.pre_range_mclks;
++    }
++
++    writeReg16Bit(FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI,
++      encodeTimeout(new_final_range_timeout_mclks));
++
++    // set_sequence_step_timeout end
++  }
++  else
++  {
++    // invalid type
++    return false;
++  }
++
++  // "Finally, the timing budget must be re-applied"
++
++  setMeasurementTimingBudget(measurement_timing_budget_us);
++
++  // "Perform the phase calibration. This is needed after changing on vcsel period."
++  // VL53L0X_perform_phase_calibration() begin
++
++  uint8_t sequence_config = readReg(SYSTEM_SEQUENCE_CONFIG);
++  writeReg(SYSTEM_SEQUENCE_CONFIG, 0x02);
++  performSingleRefCalibration(0x0);
++  writeReg(SYSTEM_SEQUENCE_CONFIG, sequence_config);
++
++  // VL53L0X_perform_phase_calibration() end
++
++  return true;
++}
++
++// Get the VCSEL pulse period in PCLKs for the given period type.
++// based on VL53L0X_get_vcsel_pulse_period()
++uint8_t VL53L0X::getVcselPulsePeriod(vcselPeriodType type)
++{
++  if (type == VcselPeriodPreRange)
++  {
++    return decodeVcselPeriod(readReg(PRE_RANGE_CONFIG_VCSEL_PERIOD));
++  }
++  else if (type == VcselPeriodFinalRange)
++  {
++    return decodeVcselPeriod(readReg(FINAL_RANGE_CONFIG_VCSEL_PERIOD));
++  }
++  else { return 255; }
++}
++
++// Start continuous ranging measurements. If period_ms (optional) is 0 or not
++// given, continuous back-to-back mode is used (the sensor takes measurements as
++// often as possible); otherwise, continuous timed mode is used, with the given
++// inter-measurement period in milliseconds determining how often the sensor
++// takes a measurement.
++// based on VL53L0X_StartMeasurement()
++void VL53L0X::startContinuous(uint32_t period_ms)
++{
++  writeReg(0x80, 0x01);
++  writeReg(0xFF, 0x01);
++  writeReg(0x00, 0x00);
++  writeReg(0x91, stop_variable);
++  writeReg(0x00, 0x01);
++  writeReg(0xFF, 0x00);
++  writeReg(0x80, 0x00);
++
++  if (period_ms != 0)
++  {
++    // continuous timed mode
++
++    // VL53L0X_SetInterMeasurementPeriodMilliSeconds() begin
++
++    uint16_t osc_calibrate_val = readReg16Bit(OSC_CALIBRATE_VAL);
++
++    if (osc_calibrate_val != 0)
++    {
++      period_ms *= osc_calibrate_val;
++    }
++
++    writeReg32Bit(SYSTEM_INTERMEASUREMENT_PERIOD, period_ms);
++
++    // VL53L0X_SetInterMeasurementPeriodMilliSeconds() end
++
++    writeReg(SYSRANGE_START, 0x04); // VL53L0X_REG_SYSRANGE_MODE_TIMED
++  }
++  else
++  {
++    // continuous back-to-back mode
++    writeReg(SYSRANGE_START, 0x02); // VL53L0X_REG_SYSRANGE_MODE_BACKTOBACK
++  }
++}
++
++// Stop continuous measurements
++// based on VL53L0X_StopMeasurement()
++void VL53L0X::stopContinuous()
++{
++  writeReg(SYSRANGE_START, 0x01); // VL53L0X_REG_SYSRANGE_MODE_SINGLESHOT
++
++  writeReg(0xFF, 0x01);
++  writeReg(0x00, 0x00);
++  writeReg(0x91, 0x00);
++  writeReg(0x00, 0x01);
++  writeReg(0xFF, 0x00);
++}
++
++// Returns a range reading in millimeters when continuous mode is active
++// (readRangeSingleMillimeters() also calls this function after starting a
++// single-shot range measurement)
++uint16_t VL53L0X::readRangeContinuousMillimeters()
++{
++  startTimeout();
++  while ((readReg(RESULT_INTERRUPT_STATUS) & 0x07) == 0)
++  {
++    if (checkTimeoutExpired())
++    {
++      did_timeout = true;
++      return 65535;
++    }
++  }
++
++  // assumptions: Linearity Corrective Gain is 1000 (default);
++  // fractional ranging is not enabled
++  uint16_t range = readReg16Bit(RESULT_RANGE_STATUS + 10);
++
++  writeReg(SYSTEM_INTERRUPT_CLEAR, 0x01);
++
++  return range;
++}
++
++// Performs a single-shot range measurement and returns the reading in
++// millimeters
++// based on VL53L0X_PerformSingleRangingMeasurement()
++uint16_t VL53L0X::readRangeSingleMillimeters()
++{
++  writeReg(0x80, 0x01);
++  writeReg(0xFF, 0x01);
++  writeReg(0x00, 0x00);
++  writeReg(0x91, stop_variable);
++  writeReg(0x00, 0x01);
++  writeReg(0xFF, 0x00);
++  writeReg(0x80, 0x00);
++
++  writeReg(SYSRANGE_START, 0x01);
++
++  // "Wait until start bit has been cleared"
++  startTimeout();
++  while (readReg(SYSRANGE_START) & 0x01)
++  {
++    if (checkTimeoutExpired())
++    {
++      did_timeout = true;
++      return 65535;
++    }
++  }
++
++  return readRangeContinuousMillimeters();
++}
++
++// Did a timeout occur in one of the read functions since the last call to
++// timeoutOccurred()?
++bool VL53L0X::timeoutOccurred()
++{
++  bool tmp = did_timeout;
++  did_timeout = false;
++  return tmp;
++}
++
++// Private Methods /////////////////////////////////////////////////////////////
++
++// Get reference SPAD (single photon avalanche diode) count and type
++// based on VL53L0X_get_info_from_device(),
++// but only gets reference SPAD count and type
++bool VL53L0X::getSpadInfo(uint8_t * count, bool * type_is_aperture)
++{
++  uint8_t tmp;
++
++  writeReg(0x80, 0x01);
++  writeReg(0xFF, 0x01);
++  writeReg(0x00, 0x00);
++
++  writeReg(0xFF, 0x06);
++  writeReg(0x83, readReg(0x83) | 0x04);
++  writeReg(0xFF, 0x07);
++  writeReg(0x81, 0x01);
++
++  writeReg(0x80, 0x01);
++
++  writeReg(0x94, 0x6b);
++  writeReg(0x83, 0x00);
++  startTimeout();
++  while (readReg(0x83) == 0x00)
++  {
++    if (checkTimeoutExpired()) { return false; }
++  }
++  writeReg(0x83, 0x01);
++  tmp = readReg(0x92);
++
++  *count = tmp & 0x7f;
++  *type_is_aperture = (tmp >> 7) & 0x01;
++
++  writeReg(0x81, 0x00);
++  writeReg(0xFF, 0x06);
++  writeReg(0x83, readReg(0x83)  & ~0x04);
++  writeReg(0xFF, 0x01);
++  writeReg(0x00, 0x01);
++
++  writeReg(0xFF, 0x00);
++  writeReg(0x80, 0x00);
++
++  return true;
++}
++
++// Get sequence step enables
++// based on VL53L0X_GetSequenceStepEnables()
++void VL53L0X::getSequenceStepEnables(SequenceStepEnables * enables)
++{
++  uint8_t sequence_config = readReg(SYSTEM_SEQUENCE_CONFIG);
++
++  enables->tcc          = (sequence_config >> 4) & 0x1;
++  enables->dss          = (sequence_config >> 3) & 0x1;
++  enables->msrc         = (sequence_config >> 2) & 0x1;
++  enables->pre_range    = (sequence_config >> 6) & 0x1;
++  enables->final_range  = (sequence_config >> 7) & 0x1;
++}
++
++// Get sequence step timeouts
++// based on get_sequence_step_timeout(),
++// but gets all timeouts instead of just the requested one, and also stores
++// intermediate values
++void VL53L0X::getSequenceStepTimeouts(SequenceStepEnables const * enables, SequenceStepTimeouts * timeouts)
++{
++  timeouts->pre_range_vcsel_period_pclks = getVcselPulsePeriod(VcselPeriodPreRange);
++
++  timeouts->msrc_dss_tcc_mclks = readReg(MSRC_CONFIG_TIMEOUT_MACROP) + 1;
++  timeouts->msrc_dss_tcc_us =
++    timeoutMclksToMicroseconds(timeouts->msrc_dss_tcc_mclks,
++                               timeouts->pre_range_vcsel_period_pclks);
++
++  timeouts->pre_range_mclks =
++    decodeTimeout(readReg16Bit(PRE_RANGE_CONFIG_TIMEOUT_MACROP_HI));
++  timeouts->pre_range_us =
++    timeoutMclksToMicroseconds(timeouts->pre_range_mclks,
++                               timeouts->pre_range_vcsel_period_pclks);
++
++  timeouts->final_range_vcsel_period_pclks = getVcselPulsePeriod(VcselPeriodFinalRange);
++
++  timeouts->final_range_mclks =
++    decodeTimeout(readReg16Bit(FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI));
++
++  if (enables->pre_range)
++  {
++    timeouts->final_range_mclks -= timeouts->pre_range_mclks;
++  }
++
++  timeouts->final_range_us =
++    timeoutMclksToMicroseconds(timeouts->final_range_mclks,
++                               timeouts->final_range_vcsel_period_pclks);
++}
++
++// Decode sequence step timeout in MCLKs from register value
++// based on VL53L0X_decode_timeout()
++// Note: the original function returned a uint32_t, but the return value is
++// always stored in a uint16_t.
++uint16_t VL53L0X::decodeTimeout(uint16_t reg_val)
++{
++  // format: "(LSByte * 2^MSByte) + 1"
++  return (uint16_t)((reg_val & 0x00FF) <<
++         (uint16_t)((reg_val & 0xFF00) >> 8)) + 1;
++}
++
++// Encode sequence step timeout register value from timeout in MCLKs
++// based on VL53L0X_encode_timeout()
++uint16_t VL53L0X::encodeTimeout(uint32_t timeout_mclks)
++{
++  // format: "(LSByte * 2^MSByte) + 1"
++
++  uint32_t ls_byte = 0;
++  uint16_t ms_byte = 0;
++
++  if (timeout_mclks > 0)
++  {
++    ls_byte = timeout_mclks - 1;
++
++    while ((ls_byte & 0xFFFFFF00) > 0)
++    {
++      ls_byte >>= 1;
++      ms_byte++;
++    }
++
++    return (ms_byte << 8) | (ls_byte & 0xFF);
++  }
++  else { return 0; }
++}
++
++// Convert sequence step timeout from MCLKs to microseconds with given VCSEL period in PCLKs
++// based on VL53L0X_calc_timeout_us()
++uint32_t VL53L0X::timeoutMclksToMicroseconds(uint16_t timeout_period_mclks, uint8_t vcsel_period_pclks)
++{
++  uint32_t macro_period_ns = calcMacroPeriod(vcsel_period_pclks);
++
++  return ((timeout_period_mclks * macro_period_ns) + 500) / 1000;
++}
++
++// Convert sequence step timeout from microseconds to MCLKs with given VCSEL period in PCLKs
++// based on VL53L0X_calc_timeout_mclks()
++uint32_t VL53L0X::timeoutMicrosecondsToMclks(uint32_t timeout_period_us, uint8_t vcsel_period_pclks)
++{
++  uint32_t macro_period_ns = calcMacroPeriod(vcsel_period_pclks);
++
++  return (((timeout_period_us * 1000) + (macro_period_ns / 2)) / macro_period_ns);
++}
++
++
++// based on VL53L0X_perform_single_ref_calibration()
++bool VL53L0X::performSingleRefCalibration(uint8_t vhv_init_byte)
++{
++  writeReg(SYSRANGE_START, 0x01 | vhv_init_byte); // VL53L0X_REG_SYSRANGE_MODE_START_STOP
++
++  startTimeout();
++  while ((readReg(RESULT_INTERRUPT_STATUS) & 0x07) == 0)
++  {
++    if (checkTimeoutExpired()) { return false; }
++  }
++
++  writeReg(SYSTEM_INTERRUPT_CLEAR, 0x01);
++
++  writeReg(SYSRANGE_START, 0x00);
++
++  return true;
++}
+diff --git a/main/robot_base/vl53l0x.h b/main/robot_base/vl53l0x.h
+new file mode 100644
+index 0000000..a8ca3e6
+--- /dev/null
++++ b/main/robot_base/vl53l0x.h
+@@ -0,0 +1,180 @@
++#ifndef VL53L0X_PORT_H
++#define VL53L0X_PORT_H
++
++#include <stdint.h>
++#include <driver/i2c_master.h>
++
++class VL53L0X
++{
++  public:
++    // register addresses from API vl53l0x_device.h (ordered as listed there)
++    enum regAddr
++    {
++      SYSRANGE_START                              = 0x00,
++
++      SYSTEM_THRESH_HIGH                          = 0x0C,
++      SYSTEM_THRESH_LOW                           = 0x0E,
++
++      SYSTEM_SEQUENCE_CONFIG                      = 0x01,
++      SYSTEM_RANGE_CONFIG                         = 0x09,
++      SYSTEM_INTERMEASUREMENT_PERIOD              = 0x04,
++
++      SYSTEM_INTERRUPT_CONFIG_GPIO                = 0x0A,
++
++      GPIO_HV_MUX_ACTIVE_HIGH                     = 0x84,
++
++      SYSTEM_INTERRUPT_CLEAR                      = 0x0B,
++
++      RESULT_INTERRUPT_STATUS                     = 0x13,
++      RESULT_RANGE_STATUS                         = 0x14,
++
++      RESULT_CORE_AMBIENT_WINDOW_EVENTS_RTN       = 0xBC,
++      RESULT_CORE_RANGING_TOTAL_EVENTS_RTN        = 0xC0,
++      RESULT_CORE_AMBIENT_WINDOW_EVENTS_REF       = 0xD0,
++      RESULT_CORE_RANGING_TOTAL_EVENTS_REF        = 0xD4,
++      RESULT_PEAK_SIGNAL_RATE_REF                 = 0xB6,
++
++      ALGO_PART_TO_PART_RANGE_OFFSET_MM           = 0x28,
++
++      I2C_SLAVE_DEVICE_ADDRESS                    = 0x8A,
++
++      MSRC_CONFIG_CONTROL                         = 0x60,
++
++      PRE_RANGE_CONFIG_MIN_SNR                    = 0x27,
++      PRE_RANGE_CONFIG_VALID_PHASE_LOW            = 0x56,
++      PRE_RANGE_CONFIG_VALID_PHASE_HIGH           = 0x57,
++      PRE_RANGE_MIN_COUNT_RATE_RTN_LIMIT          = 0x64,
++
++      FINAL_RANGE_CONFIG_MIN_SNR                  = 0x67,
++      FINAL_RANGE_CONFIG_VALID_PHASE_LOW          = 0x47,
++      FINAL_RANGE_CONFIG_VALID_PHASE_HIGH         = 0x48,
++      FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT = 0x44,
++
++      PRE_RANGE_CONFIG_SIGMA_THRESH_HI            = 0x61,
++      PRE_RANGE_CONFIG_SIGMA_THRESH_LO            = 0x62,
++
++      PRE_RANGE_CONFIG_VCSEL_PERIOD               = 0x50,
++      PRE_RANGE_CONFIG_TIMEOUT_MACROP_HI          = 0x51,
++      PRE_RANGE_CONFIG_TIMEOUT_MACROP_LO          = 0x52,
++
++      SYSTEM_HISTOGRAM_BIN                        = 0x81,
++      HISTOGRAM_CONFIG_INITIAL_PHASE_SELECT       = 0x33,
++      HISTOGRAM_CONFIG_READOUT_CTRL               = 0x55,
++
++      FINAL_RANGE_CONFIG_VCSEL_PERIOD             = 0x70,
++      FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI        = 0x71,
++      FINAL_RANGE_CONFIG_TIMEOUT_MACROP_LO        = 0x72,
++      CROSSTALK_COMPENSATION_PEAK_RATE_MCPS       = 0x20,
++
++      MSRC_CONFIG_TIMEOUT_MACROP                  = 0x46,
++
++      SOFT_RESET_GO2_SOFT_RESET_N                 = 0xBF,
++      IDENTIFICATION_MODEL_ID                     = 0xC0,
++      IDENTIFICATION_REVISION_ID                  = 0xC2,
++
++      OSC_CALIBRATE_VAL                           = 0xF8,
++
++      GLOBAL_CONFIG_VCSEL_WIDTH                   = 0x32,
++      GLOBAL_CONFIG_SPAD_ENABLES_REF_0            = 0xB0,
++      GLOBAL_CONFIG_SPAD_ENABLES_REF_1            = 0xB1,
++      GLOBAL_CONFIG_SPAD_ENABLES_REF_2            = 0xB2,
++      GLOBAL_CONFIG_SPAD_ENABLES_REF_3            = 0xB3,
++      GLOBAL_CONFIG_SPAD_ENABLES_REF_4            = 0xB4,
++      GLOBAL_CONFIG_SPAD_ENABLES_REF_5            = 0xB5,
++
++      GLOBAL_CONFIG_REF_EN_START_SELECT           = 0xB6,
++      DYNAMIC_SPAD_NUM_REQUESTED_REF_SPAD         = 0x4E,
++      DYNAMIC_SPAD_REF_EN_START_OFFSET            = 0x4F,
++      POWER_MANAGEMENT_GO1_POWER_FORCE            = 0x80,
++
++      VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV           = 0x89,
++
++      ALGO_PHASECAL_LIM                           = 0x30,
++      ALGO_PHASECAL_CONFIG_TIMEOUT                = 0x30,
++    };
++
++    enum vcselPeriodType { VcselPeriodPreRange, VcselPeriodFinalRange };
++
++    uint8_t last_status; // status of last I2C transmission
++
++    VL53L0X();
++    ~VL53L0X();
++
++    // Attach to an existing i2c_master bus (shared with the OLED). addr7 = 0x29 by default.
++    bool attach(i2c_master_bus_handle_t bus, uint8_t addr7 = 0x29, uint32_t scl_hz = 400000);
++
++    void setAddress(uint8_t new_addr);
++    inline uint8_t getAddress() { return address; }
++
++    bool init(bool io_2v8 = true);
++
++    void writeReg(uint8_t reg, uint8_t value);
++    void writeReg16Bit(uint8_t reg, uint16_t value);
++    void writeReg32Bit(uint8_t reg, uint32_t value);
++    uint8_t readReg(uint8_t reg);
++    uint16_t readReg16Bit(uint8_t reg);
++    uint32_t readReg32Bit(uint8_t reg);
++
++    void writeMulti(uint8_t reg, uint8_t const * src, uint8_t count);
++    void readMulti(uint8_t reg, uint8_t * dst, uint8_t count);
++
++    bool setSignalRateLimit(float limit_Mcps);
++    float getSignalRateLimit();
++
++    bool setMeasurementTimingBudget(uint32_t budget_us);
++    uint32_t getMeasurementTimingBudget();
++
++    bool setVcselPulsePeriod(vcselPeriodType type, uint8_t period_pclks);
++    uint8_t getVcselPulsePeriod(vcselPeriodType type);
++
++    void startContinuous(uint32_t period_ms = 0);
++    void stopContinuous();
++    uint16_t readRangeContinuousMillimeters();
++    uint16_t readRangeSingleMillimeters();
++
++    inline void setTimeout(uint16_t timeout) { io_timeout = timeout; }
++    inline uint16_t getTimeout() { return io_timeout; }
++    bool timeoutOccurred();
++
++  private:
++    // TCC: Target CentreCheck
++    // MSRC: Minimum Signal Rate Check
++    // DSS: Dynamic Spad Selection
++
++    struct SequenceStepEnables
++    {
++      bool tcc, msrc, dss, pre_range, final_range;
++    };
++
++    struct SequenceStepTimeouts
++    {
++      uint16_t pre_range_vcsel_period_pclks, final_range_vcsel_period_pclks;
++
++      uint16_t msrc_dss_tcc_mclks, pre_range_mclks, final_range_mclks;
++      uint32_t msrc_dss_tcc_us,    pre_range_us,    final_range_us;
++    };
++
++    i2c_master_bus_handle_t bus_;
++    i2c_master_dev_handle_t dev_;
++    uint8_t address;
++    uint16_t io_timeout;
++    bool did_timeout;
++    uint32_t timeout_start_ms;
++
++    uint8_t stop_variable; // read by init and used when starting measurement; is StopVariable field of VL53L0X_DevData_t structure in API
++    uint32_t measurement_timing_budget_us;
++
++    bool getSpadInfo(uint8_t * count, bool * type_is_aperture);
++
++    void getSequenceStepEnables(SequenceStepEnables * enables);
++    void getSequenceStepTimeouts(SequenceStepEnables const * enables, SequenceStepTimeouts * timeouts);
++
++    bool performSingleRefCalibration(uint8_t vhv_init_byte);
++
++    static uint16_t decodeTimeout(uint16_t value);
++    static uint16_t encodeTimeout(uint32_t timeout_mclks);
++    static uint32_t timeoutMclksToMicroseconds(uint16_t timeout_period_mclks, uint8_t vcsel_period_pclks);
++    static uint32_t timeoutMicrosecondsToMclks(uint32_t timeout_period_us, uint8_t vcsel_period_pclks);
++};
++
++#endif
+diff --git a/tests/test_robot.cc b/tests/test_robot.cc
+new file mode 100644
+index 0000000..5a4762c
+--- /dev/null
++++ b/tests/test_robot.cc
+@@ -0,0 +1,296 @@
++// Host-side tests for the robot logic. Build: g++ -std=c++17 -I../main/robot_base test_robot.cc ../main/robot_base/robot_logic.cc ../main/robot_base/robot_behaviors.cc ../main/robot_base/robot_controller.cc -o t
++#include <cstdio>
++#include <cstring>
++#include <cmath>
++#include <vector>
++#include <string>
++#include <functional>
++#include <algorithm>
++#include "robot_controller.h"
++using namespace robot;
++
++static int fails = 0, checks = 0;
++#define CHECK(c, ...) do { checks++; if (!(c)) { fails++; printf("FAIL line %d: %s  ", __LINE__, #c); printf(__VA_ARGS__); printf("\n"); } } while (0)
++
++static ControllerInput In(Hazard h = Hazard::kNone, bool idle = false, bool listening = false, bool ok = true) {
++    ControllerInput i; i.hazard = h; i.idle = idle; i.listening = listening; i.sensor_ok = ok; return i;
++}
++
++// ---------- HazardClassifier ----------
++static void test_classifier() {
++    HazardClassifier c; c.SetFloor(90);
++    CHECK(c.current() == Hazard::kUnknown, "starts unknown");
++    c.Feed(90, true); c.Feed(92, true);
++    CHECK(c.current() == Hazard::kUnknown, "needs 3 clean samples");
++    c.Feed(91, true);
++    CHECK(c.current() == Hazard::kNone, "clear after 3");
++    c.Feed(200, true);
++    CHECK(c.current() == Hazard::kNone, "single outlier ignored");
++    c.Feed(200, true);
++    CHECK(c.current() == Hazard::kCliff, "2 samples > 150 => cliff");
++    c.Feed(90, true); c.Feed(90, true);
++    CHECK(c.current() == Hazard::kCliff, "still cliff until 3 clean");
++    c.Feed(90, true);
++    CHECK(c.current() == Hazard::kNone, "cleared");
++    c.Feed(40, true); c.Feed(40, true);
++    CHECK(c.current() == Hazard::kObstacle, "40 < 90-30 => obstacle");
++    c.Feed(8190, true); c.Feed(8190, true);
++    CHECK(c.current() == Hazard::kCliff, "no echo => cliff (fail safe)");
++    c.Feed(0, false); c.Feed(0, false);
++    CHECK(c.current() == Hazard::kCliff, "2 io fails not yet a fault");
++    c.Feed(0, false);
++    CHECK(c.current() == Hazard::kSensorFault, "3 io fails => sensor fault");
++    c.Feed(150, true); c.Feed(150, true); c.Feed(150, true);
++    CHECK(c.current() == Hazard::kNone, "exactly 150 mm is NOT a cliff (user rule: >15cm)");
++    c.Feed(151, true); c.Feed(151, true);
++    CHECK(c.current() == Hazard::kCliff, "151 mm => cliff");
++    // uncalibrated: obstacle detection off, cliff still on
++    HazardClassifier u; u.SetFloor(0);
++    for (int i = 0; i < 3; i++) u.Feed(60, true);
++    CHECK(u.current() == Hazard::kNone, "no floor => no obstacle detection");
++    for (int i = 0; i < 2; i++) u.Feed(300, true);
++    CHECK(u.current() == Hazard::kCliff, "cliff works without calibration");
++}
++
++static void test_floor() {
++    uint16_t a[15], f = 0;
++    for (int i = 0; i < 15; i++) a[i] = 88 + (i % 5);
++    CHECK(ComputeFloor(a, 15, 150, &f) && f >= 88 && f <= 92, "good floor %d", f);
++    for (int i = 0; i < 15; i++) a[i] = 80 + i * 4;   // noisy
++    CHECK(!ComputeFloor(a, 15, 150, &f), "noisy rejected");
++    for (int i = 0; i < 15; i++) a[i] = 148;
++    CHECK(!ComputeFloor(a, 15, 150, &f), "floor too close to cliff threshold rejected");
++    for (int i = 0; i < 5; i++) a[i] = 90;
++    CHECK(!ComputeFloor(a, 5, 150, &f), "too few samples");
++}
++
++// ---------- helpers ----------
++static void test_helpers() {
++    int l = 28, r = 28; RemoveNetForward(l, r); CHECK(l == 0 && r == 0, "straight => stop");
++    l = 55; r = -55; RemoveNetForward(l, r); CHECK(l == 55 && r == -55, "spin kept");
++    l = 40; r = 22; RemoveNetForward(l, r); CHECK(l + r == 0 && l > 0 && r < 0, "arc => rotation (%d,%d)", l, r);
++    l = -30; r = -30; RemoveNetForward(l, r); CHECK(l == -30 && r == -30, "reverse kept");
++    l = 41; r = 20; RemoveNetForward(l, r); CHECK(l + r == 0, "odd sum (%d,%d)", l, r);
++    CHECK(ToDutyPercent(0, 30, 70) == 0, "zero");
++    CHECK(ToDutyPercent(100, 30, 70) == 70, "max");
++    CHECK(ToDutyPercent(-100, 30, 70) == -70, "neg max");
++    CHECK(ToDutyPercent(1, 30, 70) >= 30, "min start");
++    CHECK(fabsf(RampToward(0, 100, 0.02f, 300, 800) - 6) < 1e-3, "ramp up");
++    CHECK(fabsf(RampToward(50, 0, 0.02f, 300, 800) - 34) < 1e-3, "ramp down fast");
++    CHECK(RampToward(5, 0, 0.1f, 300, 800) == 0, "ramp reaches target");
++}
++
++// run controller for ms with constant input; collect stats
++struct Stats {
++    int max_fwd = -999; int min_fwd = 999; int rev_ms = 0; int spin_ms = 0; int fwd_ms = 0; int still_ms = 0;
++    float head_min = 999, head_max = -999; int max_contig_rev = 0; int nonzero_ms = 0;
++    int faces = 0; std::vector<std::string> face_list;
++    std::vector<std::string> modes;
++};
++static Stats Run(RobotController& c, ControllerInput in, int ms, std::function<void(int)> hook = nullptr) {
++    Stats s; int contig = 0;
++    for (int t = 0; t < ms; t += in.dt_ms) {
++        if (hook) hook(t);
++        ControllerOutput o = c.Tick(in);
++        int fwd = o.left + o.right;
++        s.max_fwd = std::max(s.max_fwd, fwd); s.min_fwd = std::min(s.min_fwd, fwd);
++        if (fwd < 0) { s.rev_ms += in.dt_ms; contig += in.dt_ms; s.max_contig_rev = std::max(s.max_contig_rev, contig); } else contig = 0;
++        if (fwd > 0) s.fwd_ms += in.dt_ms;
++        if (o.left * o.right < 0) s.spin_ms += in.dt_ms;
++        if (o.left == 0 && o.right == 0) s.still_ms += in.dt_ms; else s.nonzero_ms += in.dt_ms;
++        s.head_min = std::min(s.head_min, o.head); s.head_max = std::max(s.head_max, o.head);
++        if (o.face) { s.faces++; s.face_list.push_back(o.face); }
++    }
++    return s;
++}
++
++static void test_emotions() {
++    ControllerConfig cfg; cfg.wander = true;
++    { // HAPPY: spins until emotion changes
++        RobotController c(cfg, 1); c.SetEmotion("happy");
++        Stats s = Run(c, In(Hazard::kNone, false, false), 12000);
++        CHECK(s.spin_ms >= 8000, "happy spin_ms=%d", s.spin_ms);
++        CHECK(s.head_max - s.head_min >= 40, "happy head bobbing range %.1f", s.head_max - s.head_min);
++        c.SetEmotion("neutral");
++        Stats s2 = Run(c, In(Hazard::kNone, false, false), 1000);
++        CHECK(s2.nonzero_ms == 0, "neutral stops motors (non-idle) nz=%d", s2.nonzero_ms);
++    }
++    { // SAD: reverses (limited), head down
++        RobotController c(cfg, 2); c.SetEmotion("sad");
++        Stats s = Run(c, In(Hazard::kNone, false, false), 15000);
++        CHECK(s.rev_ms > 500 && s.rev_ms <= 1900, "sad reverse total %d ms (budget 1800)", s.rev_ms);
++        CHECK(s.max_contig_rev <= 700, "sad max contiguous reverse %d", s.max_contig_rev);
++        CHECK(s.head_max < -55, "sad head stays down max=%.1f", s.head_max);
++        CHECK(s.fwd_ms == 0, "sad never forward");
++    }
++    { // ANGRY: slow advance, head up
++        RobotController c(cfg, 3); c.SetEmotion("angry");
++        Stats s = Run(c, In(Hazard::kNone, false, false), 8000);
++        CHECK(s.fwd_ms >= 2000, "angry advances fwd_ms=%d", s.fwd_ms);
++        CHECK(s.max_fwd <= 70, "angry slow max_fwd=%d", s.max_fwd);
++        CHECK(s.head_max >= 70, "angry head up max=%.1f", s.head_max);
++    }
++    { // SLEEPY: back and forth slowly, head nodding
++        RobotController c(cfg, 4); c.SetEmotion("sleepy");
++        Stats s = Run(c, In(Hazard::kNone, false, false), 12000);
++        CHECK(s.fwd_ms > 500 && s.rev_ms > 500, "sleepy fwd=%d rev=%d", s.fwd_ms, s.rev_ms);
++        CHECK(s.max_fwd <= 40 && s.min_fwd >= -40, "sleepy slow [%d,%d]", s.min_fwd, s.max_fwd);
++        CHECK(s.head_max - s.head_min >= 50, "sleepy nod range %.1f", s.head_max - s.head_min);
++    }
++    { // unknown emotion ignored, known list all resolve
++        RobotController c(cfg, 5);
++        c.SetEmotion("happy"); c.SetEmotion("banana");
++        CHECK(strcmp(c.BehaviorName(), "happy") == 0 || strcmp(c.BehaviorName(), "") == 0, "unknown label ignored");
++        const char* all[] = {"happy","laughing","funny","silly","sad","crying","angry","sleepy","surprised","shocked","confused","embarrassed","loving","kissy","thinking","cool","confident","relaxed","winking","delicious"};
++        for (auto e : all) { bool k; const Behavior* b = FindEmotionBehavior(e, &k); CHECK(k && b, "emotion %s mapped", e); }
++        bool k; CHECK(FindEmotionBehavior("neutral", &k) == nullptr && k, "neutral known & null");
++    }
++    { // same emotion repeated keeps phase (not restarted)
++        RobotController c(cfg, 6); c.SetEmotion("happy"); Run(c, In(), 1000);
++        const char* before = c.BehaviorName(); c.SetEmotion("happy");
++        CHECK(strcmp(before, c.BehaviorName()) == 0, "repeat ok");
++    }
++    { // emotion times out
++        ControllerConfig c2 = cfg; c2.emotion_max_ms = 3000;
++        RobotController c(c2, 7); c.SetEmotion("happy");
++        Stats s = Run(c, In(Hazard::kNone, false, false), 6000);
++        CHECK(s.still_ms >= 2500, "emotion expires, still=%d", s.still_ms);
++        CHECK(s.faces >= 1 && s.face_list.back() == "neutral", "face neutral restored on timeout");
++    }
++}
++
++static void test_safety() {
++    ControllerConfig cfg;
++    { // angry advance + cliff appears -> never net forward while hazard, reflex runs
++        RobotController c(cfg, 11); c.SetEmotion("angry");
++        Run(c, In(Hazard::kNone), 600);                          // already advancing
++        int bad = 0; bool saw_reflex = false; int rev = 0, spin = 0;
++        for (int t = 0; t < 4000; t += 20) {
++            ControllerInput in = In(t < 100 ? Hazard::kCliff : Hazard::kNone);  // single hazard event
++            ControllerOutput o = c.Tick(in);
++            if (in.hazard != Hazard::kNone && o.left + o.right > 0) bad++;
++            if (strcmp(c.ModeName(), "reflex") == 0) saw_reflex = true;
++            if (o.left + o.right < 0) rev += 20;
++            if (o.left * o.right < 0) spin += 20;
++        }
++        CHECK(bad == 0, "net-forward ticks while cliff = %d", bad);
++        CHECK(saw_reflex, "reflex engaged");
++        CHECK(rev > 0 && rev <= 450, "reflex reverse short: %d", rev);
++        CHECK(spin > 0, "reflex turns away");
++    }
++    { // very first tick with a cliff already present and intent forward: no forward output at all
++        RobotController c(cfg, 12); c.SetEmotion("angry");
++        int bad = 0; ControllerInput in = In(Hazard::kCliff);
++        for (int t = 0; t < 3000; t += 20) { auto o = c.Tick(in); if (o.left + o.right > 0) bad++; }
++        CHECK(bad == 0, "cold start at cliff, forward ticks %d", bad);
++    }
++    { // hazard kUnknown (not calibrated): no forward
++        RobotController c(cfg, 13); c.ManualMove(60, 60, 3000);
++        int bad = 0; ControllerInput in = In(Hazard::kUnknown);
++        for (int t = 0; t < 3000; t += 20) { auto o = c.Tick(in); if (o.left + o.right > 0) bad++; }
++        CHECK(bad == 0, "unknown hazard blocks forward (%d)", bad);
++    }
++    { // manual forward into obstacle: cancelled by reflex
++        RobotController c(cfg, 14); c.ManualMove(60, 60, 5000);
++        ControllerInput in = In(Hazard::kObstacle); int bad = 0;
++        for (int t = 0; t < 2000; t += 20) { auto o = c.Tick(in); if (o.left + o.right > 0) bad++; }
++        CHECK(bad == 0, "manual forward blocked");
++    }
++    { // manual forward OK when clear
++        RobotController c(cfg, 15); c.ManualMove(60, 60, 1000);
++        Stats s = Run(c, In(Hazard::kNone), 1000);
++        CHECK(s.fwd_ms >= 900, "manual forward works when clear (%d)", s.fwd_ms);
++    }
++    { // sensor dead => wheels never move (default config), head still works
++        RobotController c(cfg, 16); c.SetEmotion("happy"); c.ManualMove(60, 60, 3000);
++        Stats s = Run(c, In(Hazard::kSensorFault, true, false, false), 5000);
++        CHECK(s.nonzero_ms == 0, "no motion without guard (%d)", s.nonzero_ms);
++        CHECK(s.head_max - s.head_min >= 30, "head still animates without guard");
++    }
++    { // allow_no_sensor lets wheels move (bench test)
++        ControllerConfig c2 = cfg; c2.allow_no_sensor = true;
++        RobotController c(c2, 17); c.ManualMove(60, 60, 1000);
++        Stats s = Run(c, In(Hazard::kSensorFault, false, false, false), 1000);
++        CHECK(s.fwd_ms > 500, "bench mode drives (%d)", s.fwd_ms);
++    }
++    { // listening gate
++        RobotController c(cfg, 18); c.SetEmotion("happy");
++        Stats s = Run(c, In(Hazard::kNone, false, true), 4000);
++        CHECK(s.nonzero_ms == 0, "silent while listening (%d)", s.nonzero_ms);
++        CHECK(s.head_max - s.head_min >= 30, "head still moves while listening");
++        ControllerConfig c2 = cfg; c2.stop_when_listening = false;
++        RobotController d(c2, 18); d.SetEmotion("happy");
++        Stats s2 = Run(d, In(Hazard::kNone, false, true), 4000);
++        CHECK(s2.nonzero_ms > 3000, "gate can be disabled");
++    }
++    { // blind reverse disabled
++        ControllerConfig c2 = cfg; c2.blind_reverse = false;
++        RobotController c(c2, 19); c.SetEmotion("sad");
++        Stats s = Run(c, In(), 8000);
++        CHECK(s.rev_ms == 0, "no reverse when disabled (%d)", s.rev_ms);
++    }
++    { // contiguous reverse cap via manual
++        RobotController c(cfg, 20); c.ManualMove(-60, -60, 5000);
++        Stats s = Run(c, In(), 5000);
++        CHECK(s.max_contig_rev <= 720, "manual reverse capped: %d", s.max_contig_rev);
++    }
++    { // stuck: persistent cliff + wander => eventually stuck / still
++        RobotController c(cfg, 21); c.SetEmotion("angry");
++        ControllerInput in = In(Hazard::kCliff);
++        bool stuck = false; int bad = 0;
++        for (int t = 0; t < 60000; t += 20) {
++            auto o = c.Tick(in); if (o.left + o.right > 0) bad++;
++            if (strcmp(c.ModeName(), "stuck") == 0) stuck = true;
++        }
++        CHECK(bad == 0, "persistent cliff never forward (%d)", bad);
++        CHECK(stuck, "stuck state reached after repeated reflexes");
++    }
++    { // face reaction
++        RobotController c(cfg, 22); c.SetEmotion("angry");
++        Stats s = Run(c, In(Hazard::kCliff), 100);
++        Stats s_b = Run(c, In(Hazard::kNone), 3500);
++        s.faces += s_b.faces; for (auto& f : s_b.face_list) s.face_list.push_back(f);
++        CHECK(s.faces >= 2, "face on reflex start and end (%d)", s.faces);
++        CHECK(s.face_list.front() == "shocked", "shocked face first, got %s", s.face_list.front().c_str());
++        CHECK(s.face_list.back() == "angry", "restore last emotion, got %s", s.face_list.back().c_str());
++    }
++}
++
++static void test_wander() {
++    ControllerConfig cfg;
++    RobotController c(cfg, 31);
++    Stats s = Run(c, In(Hazard::kNone, true), 60000);
++    CHECK(s.fwd_ms > 2000, "wander drives forward (%d)", s.fwd_ms);
++    CHECK(s.spin_ms > 1500, "wander spins (%d)", s.spin_ms);
++    CHECK(s.rev_ms > 100, "wander shuffles back (%d)", s.rev_ms);
++    CHECK(s.still_ms > 10000, "wander pauses (%d)", s.still_ms);
++    // not idle => no wander
++    RobotController d(cfg, 32);
++    Stats s2 = Run(d, In(Hazard::kNone, false), 20000);
++    CHECK(s2.nonzero_ms == 0, "no wander when not idle");
++    // wander disabled
++    ControllerConfig c3 = cfg; c3.wander = false; RobotController e(c3, 33);
++    Stats s3 = Run(e, In(Hazard::kNone, true), 20000);
++    CHECK(s3.nonzero_ms == 0, "wander disabled");
++    // wander with cliff never goes forward
++    RobotController f(cfg, 34); int bad = 0; ControllerInput in = In(Hazard::kCliff, true);
++    for (int t = 0; t < 60000; t += 20) { auto o = f.Tick(in); if (o.left + o.right > 0) bad++; }
++    CHECK(bad == 0, "wander + cliff never forward (%d)", bad);
++}
++
++static void test_head() {
++    ControllerConfig cfg; RobotController c(cfg, 41);
++    c.ManualHead(-80, 1000);
++    ControllerOutput o = c.Tick(In());
++    CHECK(o.head == -80, "head override");
++    for (int i = 0; i < 60; i++) o = c.Tick(In());
++    CHECK(o.head == 0, "head returns to rest after hold (%.1f)", o.head);
++    o = c.Tick(In(Hazard::kNone, false, true));
++    CHECK(o.head == 15, "listening head pose");
++}
++
++int main() {
++    test_classifier(); test_floor(); test_helpers(); test_emotions(); test_safety(); test_wander(); test_head();
++    printf("%d checks, %d failed\n", checks, fails);
++    return fails ? 1 : 0;
++}

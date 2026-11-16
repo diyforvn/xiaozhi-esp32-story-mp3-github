@@ -16,8 +16,9 @@ NoAudioCodec::~NoAudioCodec() {
     }
 }
 
-NoAudioCodecDuplex::NoAudioCodecDuplex(int input_sample_rate, int output_sample_rate, gpio_num_t bclk, gpio_num_t ws, gpio_num_t dout, gpio_num_t din) {
+NoAudioCodecDuplex::NoAudioCodecDuplex(int input_sample_rate, int output_sample_rate, gpio_num_t bclk, gpio_num_t ws, gpio_num_t dout, gpio_num_t din, i2s_std_slot_mask_t mic_slot_mask) {
     duplex_ = true;
+    mic_stereo_ = mic_slot_mask == I2S_STD_SLOT_BOTH;
     input_sample_rate_ = input_sample_rate;
     output_sample_rate_ = output_sample_rate;
 
@@ -72,7 +73,14 @@ NoAudioCodecDuplex::NoAudioCodecDuplex(int input_sample_rate, int output_sample_
         }
     };
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_handle_, &std_cfg));
-    ESP_ERROR_CHECK(i2s_channel_init_std_mode(rx_handle_, &std_cfg));
+    i2s_std_config_t rx_cfg = std_cfg;
+    if (mic_stereo_) {
+        rx_cfg.slot_cfg.slot_mode = I2S_SLOT_MODE_STEREO;
+        rx_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_BOTH;
+    } else {
+        rx_cfg.slot_cfg.slot_mask = mic_slot_mask;
+    }
+    ESP_ERROR_CHECK(i2s_channel_init_std_mode(rx_handle_, &rx_cfg));
     ESP_LOGI(TAG, "Duplex channels created");
 }
 
@@ -243,14 +251,18 @@ int NoAudioCodec::Read(int16_t* dest, int samples) {
     size_t bytes_read;
     constexpr uint32_t kReadTimeoutMs = 200;
 
-    std::vector<int32_t> bit32_buffer(samples);
-    if (i2s_channel_read(rx_handle_, bit32_buffer.data(), samples * sizeof(int32_t), &bytes_read, kReadTimeoutMs) != ESP_OK) {
+    const int words_per_frame = mic_stereo_ ? 2 : 1;
+    std::vector<int32_t> bit32_buffer(samples * words_per_frame);
+    if (i2s_channel_read(rx_handle_, bit32_buffer.data(), bit32_buffer.size() * sizeof(int32_t), &bytes_read, kReadTimeoutMs) != ESP_OK) {
         return 0;
     }
 
-    samples = bytes_read / sizeof(int32_t);
+    samples = bytes_read / (sizeof(int32_t) * words_per_frame);
     for (int i = 0; i < samples; i++) {
-        int32_t value = bit32_buffer[i] >> 12;
+        int32_t value = bit32_buffer[i * words_per_frame] >> 12;
+        if (mic_stereo_) {
+            value = (value + (bit32_buffer[i * 2 + 1] >> 12)) / 2;
+        }
         dest[i] = (value > INT16_MAX) ? INT16_MAX : (value < -INT16_MAX) ? -INT16_MAX : (int16_t)value;
     }
     return samples;

@@ -299,8 +299,10 @@ std::string MarketCrypto::Show(const std::string& query, bool all) {
         coins.push_back(i);
     }
 
-    // Cả hai tính năng cùng vẽ lên lớp trên cùng, nên tắt camera trước (bỏ dòng này nếu không cần).
+    // Both features use the top display layer, so close the camera overlay first.
+#if CONFIG_MCP_ENABLE_TRAFFIC_CAM_TOOLS
     TrafficCam::GetInstance().Close();
+#endif
 
     xSemaphoreTake(reply_sem_, 0);  // xóa tín hiệu cũ
     {

@@ -16,6 +16,9 @@
 #include <esp_lcd_panel_vendor.h>
 
 #include "mochi_display.h"
+#ifdef CONFIG_ROBOT_BASE_ENABLE
+#include "robot_base/robot_base.h"
+#endif
 #include "settings.h" 
 #include "esp_system.h"   // esp_restart()
 
@@ -208,6 +211,10 @@ public:
         InitializeSsd1306Display();
         InitializeButtons();
         InitializeTools();
+#ifdef CONFIG_ROBOT_BASE_ENABLE
+        // wheels + laser guard + head servo; the VL53L0X shares the OLED I2C bus
+        RobotBase::GetInstance().Init(display_i2c_bus_);
+#endif
     }
 
     virtual Led* GetLed() override {

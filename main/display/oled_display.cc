@@ -5,6 +5,7 @@
 
 #include <string>
 #include <algorithm>
+#include <cctype>
 
 #include <esp_log.h>
 #include <esp_err.h>
@@ -464,8 +465,23 @@ std::vector<std::string> OledDisplay::GetIdleAnimationNames() {
 
 bool OledDisplay::SetIdleAnimationName(const std::string& name) {
     DisplayLockGuard lock(this);
+    std::string normalized_name = name;
+    std::transform(normalized_name.begin(), normalized_name.end(), normalized_name.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    normalized_name.erase(normalized_name.begin(),
+                          std::find_if(normalized_name.begin(), normalized_name.end(),
+                                       [](unsigned char ch) { return !std::isspace(ch); }));
+    normalized_name.erase(std::find_if(normalized_name.rbegin(), normalized_name.rend(),
+                                       [](unsigned char ch) { return !std::isspace(ch); }).base(),
+                          normalized_name.end());
 
-    if (name == kIdleAnimationNone) {
+    if (normalized_name == "default" || normalized_name == "normal" ||
+        normalized_name == "mac dinh" || normalized_name == "mac_dinh" ||
+        normalized_name == "mặc định") {
+        normalized_name = kIdleAnimationNone;
+    }
+
+    if (normalized_name == kIdleAnimationNone) {
         if (idle_gif_controller_) {
             idle_gif_controller_->Stop();
         }
@@ -482,15 +498,15 @@ bool OledDisplay::SetIdleAnimationName(const std::string& name) {
         return true;
     }
 
-    if (name == idle_anim_current_name_ && idle_gif_controller_) {
+    if (normalized_name == idle_anim_current_name_ && idle_gif_controller_) {
         return true;
     }
-    if (!LoadIdleAnimationByName(name)) {
+    if (!LoadIdleAnimationByName(normalized_name)) {
         return false;
     }
 
     Settings settings("oled_idle_anim", true);
-    settings.SetString("name", name);
+    settings.SetString("name", normalized_name);
 
     if (idle_anim_active_) {
         ApplyIdleState();

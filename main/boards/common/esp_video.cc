@@ -13,6 +13,21 @@
 #include "esp_imgfx_color_convert.h"
 #include "esp_video_device.h"
 #include "esp_video_init.h"
+// lwIP's sockets.h uses the same ioctl macro names with a different encoding.
+// The V4L2 API requires Linux ioctl request numbers, so let its header define
+// the macros after any lwIP headers included above.
+#ifdef _IO
+#undef _IO
+#endif
+#ifdef _IOR
+#undef _IOR
+#endif
+#ifdef _IOW
+#undef _IOW
+#endif
+#ifdef _IOWR
+#undef _IOWR
+#endif
 #include "linux/videodev2.h"
 
 #include "board.h"

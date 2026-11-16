@@ -49,9 +49,26 @@ void Protocol::SendAbortSpeaking(AbortReason reason) {
 }
 
 void Protocol::SendWakeWordDetected(const std::string& wake_word) {
-    std::string json = "{\"session_id\":\"" + session_id_ + 
-                      "\",\"type\":\"listen\",\"state\":\"detect\",\"text\":\"" + wake_word + "\"}";
+    cJSON* message = cJSON_CreateObject();
+    if (!message) {
+        ESP_LOGE(TAG, "Failed to allocate wake word message");
+        return;
+    }
+
+    cJSON_AddStringToObject(message, "session_id", session_id_.c_str());
+    cJSON_AddStringToObject(message, "type", "listen");
+    cJSON_AddStringToObject(message, "state", "detect");
+    cJSON_AddStringToObject(message, "text", wake_word.c_str());
+
+    char* json = cJSON_PrintUnformatted(message);
+    cJSON_Delete(message);
+    if (!json) {
+        ESP_LOGE(TAG, "Failed to serialize wake word message");
+        return;
+    }
+
     SendText(json);
+    cJSON_free(json);
 }
 
 void Protocol::SendStartListening(ListeningMode mode) {
@@ -76,6 +93,31 @@ void Protocol::SendStopListening() {
 void Protocol::SendMcpMessage(const std::string& payload) {
     std::string message = "{\"session_id\":\"" + session_id_ + "\",\"type\":\"mcp\",\"payload\":" + payload + "}";
     SendText(message);
+}
+
+bool Protocol::SendAlarmNotification(uint32_t alarm_id, const std::string& text) {
+    cJSON* message = cJSON_CreateObject();
+    if (message == nullptr) {
+        ESP_LOGE(TAG, "Failed to allocate alarm notification");
+        return false;
+    }
+
+    cJSON_AddStringToObject(message, "session_id", session_id_.c_str());
+    cJSON_AddStringToObject(message, "type", "alarm");
+    cJSON_AddStringToObject(message, "state", "speak");
+    cJSON_AddNumberToObject(message, "alarm_id", alarm_id);
+    cJSON_AddStringToObject(message, "text", text.c_str());
+
+    char* json = cJSON_PrintUnformatted(message);
+    cJSON_Delete(message);
+    if (json == nullptr) {
+        ESP_LOGE(TAG, "Failed to serialize alarm notification");
+        return false;
+    }
+
+    const bool sent = SendText(json);
+    cJSON_free(json);
+    return sent;
 }
 
 bool Protocol::IsTimeout() const {

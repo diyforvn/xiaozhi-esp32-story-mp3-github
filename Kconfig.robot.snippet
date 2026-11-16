@@ -1,0 +1,139 @@
+
+menu "Robot Base (2 wheels + laser guard + head servo)"
+
+    config ROBOT_BASE_ENABLE
+        bool "Enable robot base (DRV8833 wheels, VL53L0X laser, SG90 head)"
+        default n
+        depends on BOARD_TYPE_BREAD_COMPACT_WIFI || BOARD_TYPE_BREAD_COMPACT_WIFI_LCD
+        help
+            Turns xiaozhi into a small robot that moves with its emotions and avoids
+            obstacles / table edges with a forward-down VL53L0X laser.
+            Works with both the OLED (Mochi face) and the TFT (robot eyes) display.
+
+    if ROBOT_BASE_ENABLE
+
+        menu "Pins"
+            config ROBOT_PIN_MOTOR_L_IN1
+                int "Left wheel DRV8833 IN1 (GPIO)"
+                range 0 48
+                default 39
+            config ROBOT_PIN_MOTOR_L_IN2
+                int "Left wheel DRV8833 IN2 (GPIO)"
+                range 0 48
+                default 40
+            config ROBOT_PIN_MOTOR_R_IN1
+                int "Right wheel DRV8833 IN1 (GPIO)"
+                range 0 48
+                default 41
+            config ROBOT_PIN_MOTOR_R_IN2
+                int "Right wheel DRV8833 IN2 (GPIO)"
+                range 0 48
+                default 42
+            config ROBOT_PIN_SERVO
+                int "Head servo signal (GPIO)"
+                range 0 48
+                default 47
+            config ROBOT_PIN_TOF_INT
+                int "VL53L0X INT / GPIO1 (GPIO)"
+                range 0 48
+                default 38
+            config ROBOT_I2C_SDA
+                int "I2C SDA for the VL53L0X (LCD build only; the OLED build reuses the OLED bus)"
+                range 0 48
+                default 1
+                depends on BOARD_TYPE_BREAD_COMPACT_WIFI_LCD
+            config ROBOT_I2C_SCL
+                int "I2C SCL for the VL53L0X (LCD build only; the OLED build reuses the OLED bus)"
+                range 0 48
+                default 2
+                depends on BOARD_TYPE_BREAD_COMPACT_WIFI_LCD
+        endmenu
+
+        menu "Wheels"
+            config ROBOT_MOTOR_L_INVERT
+                bool "Invert left wheel direction"
+                default n
+            config ROBOT_MOTOR_R_INVERT
+                bool "Invert right wheel direction"
+                default n
+            config ROBOT_MOTOR_MIN_START_PCT
+                int "Minimum PWM duty (%) at the lowest speed (overcomes stiction)"
+                range 0 80
+                default 30
+            config ROBOT_MOTOR_MAX_PCT
+                int "Maximum PWM duty (%) (protects motors on a 2S pack)"
+                range 20 100
+                default 70
+        endmenu
+
+        menu "Laser guard"
+            config ROBOT_CLIFF_MM
+                int "Cliff threshold (mm): reading above this = drop / table edge"
+                range 60 1000
+                default 150
+            config ROBOT_OBSTACLE_MARGIN_MM
+                int "Obstacle margin (mm): reading below (floor - margin) = obstacle"
+                range 10 100
+                default 30
+        endmenu
+
+        menu "Head servo"
+            config ROBOT_HEAD_CENTER_DEG
+                int "Servo angle (deg) when the head is level"
+                range 0 180
+                default 90
+            config ROBOT_HEAD_RANGE_DEG
+                int "Servo travel (deg) for pose +-100"
+                range 5 90
+                default 35
+            config ROBOT_HEAD_INVERT
+                bool "Invert head direction (use if 'up' moves the head down)"
+                default n
+            config ROBOT_SERVO_MIN_US
+                int "Servo pulse at 0 deg (us)"
+                range 400 1000
+                default 500
+            config ROBOT_SERVO_MAX_US
+                int "Servo pulse at 180 deg (us)"
+                range 2000 2600
+                default 2400
+        endmenu
+
+        menu "Behavior"
+            config ROBOT_WANDER_ENABLE
+                bool "Wander (drive / spin randomly) while idle"
+                default y
+            config ROBOT_STOP_WHEN_LISTENING
+                bool "Keep the wheels silent while the device is listening"
+                default y
+                help
+                    Motor noise disturbs the microphone. Turn this off only if you use
+                    realtime listening mode (device stays in the listening state while it talks).
+            config ROBOT_BLIND_REVERSE
+                bool "Allow reversing (there is no rear sensor!)"
+                default y
+                help
+                    Sad / sleepy / reflex moves back up a little. Without a rear sensor the
+                    robot can reverse off a table edge. Short caps are enforced, but turn this
+                    off for table-top use if you have no rear protection.
+            config ROBOT_REVERSE_MAX_MS
+                int "Longest continuous reverse (ms)"
+                range 200 3000
+                default 700
+            config ROBOT_EMOTION_MAX_SEC
+                int "An emotion behavior falls back to neutral after (s)"
+                range 5 600
+                default 90
+            config ROBOT_FACE_REACTION
+                bool "Show surprised/shocked face when the laser guard reacts"
+                default y
+            config ROBOT_ALLOW_NO_SENSOR
+                bool "DANGEROUS: allow wheels when the laser guard is not working"
+                default n
+                help
+                    Only for bench tests without the VL53L0X. The robot will drive off tables.
+        endmenu
+
+    endif # ROBOT_BASE_ENABLE
+
+endmenu

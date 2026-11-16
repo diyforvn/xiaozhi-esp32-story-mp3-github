@@ -8,6 +8,9 @@
 #include "mcp_server.h"
 #include "lamp_controller.h"
 #include "led/single_led.h"
+#ifdef CONFIG_ROBOT_BASE_ENABLE
+#include "robot_base/robot_base.h"
+#endif
 
 #include <esp_log.h>
 #include <driver/i2c_master.h>
@@ -135,7 +138,10 @@ private:
 
     // 物联网初始化，添加对 AI 可见设备
     void InitializeTools() {
+#ifndef CONFIG_ROBOT_BASE_ENABLE
+        // GPIO38 is the VL53L0X INT pin when the robot base is enabled, so no lamp then
         static LampController lamp(LAMP_GPIO);
+#endif
     }
 
 public:
@@ -148,7 +154,11 @@ public:
         if (DISPLAY_BACKLIGHT_PIN != GPIO_NUM_NC) {
             GetBacklight()->RestoreBrightness();
         }
-        
+#ifdef CONFIG_ROBOT_BASE_ENABLE
+        // wheels + laser guard + head servo; this build has no OLED, so create the I2C bus here
+        RobotBase::GetInstance().Init(RobotBase::CreateI2cBus());
+#endif
+
     }
 
     virtual Led* GetLed() override {

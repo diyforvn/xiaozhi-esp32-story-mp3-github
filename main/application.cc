@@ -1,4 +1,7 @@
 #include "application.h"
+#ifdef CONFIG_ROBOT_BASE_ENABLE
+#include "robot_base/robot_emotion_hook.h"
+#endif
 #include "board.h"
 #include "display.h"
 #include "system_info.h"
@@ -19,6 +22,7 @@
 #endif
 
 #include <cstring>
+#include <cinttypes>
 #include <esp_log.h>
 #include <cJSON.h>
 #include <driver/gpio.h>
@@ -532,6 +536,8 @@ void Application::InitializeProtocol() {
     protocol_->OnAudioChannelClosed([this, &board]() {
         board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
         Schedule([this]() {
+            scheduled_tts_pending_ = false;
+            scheduled_tts_active_ = false;
             auto display = Board::GetInstance().GetDisplay();
             display->SetChatMessage("system", "");
             SetDeviceState(kDeviceStateIdle);
@@ -546,16 +552,26 @@ void Application::InitializeProtocol() {
             if (strcmp(state->valuestring, "start") == 0) {
                 Schedule([this]() {
                     aborted_ = false;
+                    if (scheduled_tts_pending_) {
+                        scheduled_tts_pending_ = false;
+                        scheduled_tts_active_ = true;
+                    }
                     SetDeviceState(kDeviceStateSpeaking);
                 });
             } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
+                    const bool close_scheduled_session = scheduled_tts_active_ || scheduled_tts_pending_;
+                    scheduled_tts_active_ = false;
+                    scheduled_tts_pending_ = false;
                     if (GetDeviceState() == kDeviceStateSpeaking) {
-                        if (listening_mode_ == kListeningModeManualStop) {
+                        if (close_scheduled_session || listening_mode_ == kListeningModeManualStop) {
                             SetDeviceState(kDeviceStateIdle);
                         } else {
                             SetDeviceState(kDeviceStateListening);
                         }
+                    }
+                    if (close_scheduled_session && protocol_ && protocol_->IsAudioChannelOpened()) {
+                        protocol_->CloseAudioChannel();
                     }
                 });
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
@@ -579,7 +595,13 @@ void Application::InitializeProtocol() {
             auto emotion = cJSON_GetObjectItem(root, "emotion");
             if (cJSON_IsString(emotion)) {
                 Schedule([display, emotion_str = std::string(emotion->valuestring)]() {
+#ifdef CONFIG_ROBOT_BASE_ENABLE
+                    RobotEmotionHook::Notify(emotion_str.c_str());
+                    const std::string face = RobotEmotionHook::ResolveEmotion(emotion_str.c_str());
+                    display->SetEmotion(face.c_str());
+#else
                     display->SetEmotion(emotion_str.c_str());
+#endif
                 });
             }
         } else if (strcmp(type->valuestring, "mcp") == 0) {
@@ -608,6 +630,21 @@ void Application::InitializeProtocol() {
                 Alert(status->valuestring, message->valuestring, emotion->valuestring, Lang::Sounds::OGG_VIBRATION);
             } else {
                 ESP_LOGW(TAG, "Alert command requires status, message and emotion");
+            }
+        } else if (strcmp(type->valuestring, "alarm") == 0) {
+            auto state = cJSON_GetObjectItem(root, "state");
+            auto message = cJSON_GetObjectItem(root, "message");
+            if (cJSON_IsString(state) && strcmp(state->valuestring, "error") == 0) {
+                ESP_LOGE(TAG, "Server alarm TTS failed: %s",
+                         cJSON_IsString(message) ? message->valuestring : "unspecified error");
+                Schedule([this]() {
+                    scheduled_tts_pending_ = false;
+                    scheduled_tts_active_ = false;
+                    SetDeviceState(kDeviceStateIdle);
+                    if (protocol_ && protocol_->IsAudioChannelOpened()) {
+                        protocol_->CloseAudioChannel();
+                    }
+                });
             }
 #if CONFIG_RECEIVE_CUSTOM_MESSAGE
         } else if (strcmp(type->valuestring, "custom") == 0) {
@@ -663,7 +700,13 @@ void Application::Alert(const char* status, const char* message, const char* emo
     ESP_LOGW(TAG, "Alert [%s] %s: %s", emotion, status, message);
     auto display = Board::GetInstance().GetDisplay();
     display->SetStatus(status);
+#ifdef CONFIG_ROBOT_BASE_ENABLE
+    RobotEmotionHook::Notify(emotion);
+    const std::string face = RobotEmotionHook::ResolveEmotion(emotion);
+    display->SetEmotion(face.c_str());
+#else
     display->SetEmotion(emotion);
+#endif
     display->SetChatMessage("system", message);
     if (!sound.empty()) {
         audio_service_.PlaySound(sound);
@@ -674,7 +717,13 @@ void Application::DismissAlert() {
     if (GetDeviceState() == kDeviceStateIdle) {
         auto display = Board::GetInstance().GetDisplay();
         display->SetStatus(Lang::Strings::STANDBY);
+#ifdef CONFIG_ROBOT_BASE_ENABLE
+        RobotEmotionHook::Notify("neutral");
+        const std::string face = RobotEmotionHook::ResolveEmotion("neutral");
+        display->SetEmotion(face.c_str());
+#else
         display->SetEmotion("neutral");
+#endif
         display->SetChatMessage("system", "");
     }
 }
@@ -880,6 +929,10 @@ void Application::HandleStateChangedEvent() {
     DeviceState new_state = state_machine_.GetState();
     clock_ticks_ = 0;
 
+#ifdef CONFIG_ROBOT_BASE_ENABLE
+    RobotEmotionHook::NotifyState(new_state);
+#endif
+
     auto& board = Board::GetInstance();
     auto display = board.GetDisplay();
     auto led = board.GetLed();
@@ -892,7 +945,15 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateIdle:
             display->SetStatus(Lang::Strings::STANDBY);
             display->ClearChatMessages();  // Clear messages first
+#ifdef CONFIG_ROBOT_BASE_ENABLE
+            RobotEmotionHook::Notify("neutral");
+            {
+                const std::string face = RobotEmotionHook::ResolveEmotion("neutral");
+                display->SetEmotion(face.c_str()); // Then set emotion (wechat mode checks child count)
+            }
+#else
             display->SetEmotion("neutral"); // Then set emotion (wechat mode checks child count)
+#endif
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
 #if CONFIG_ENABLE_STORY_PLAYER || CONFIG_ENABLE_MUSIC_PLAYER
@@ -904,7 +965,14 @@ void Application::HandleStateChangedEvent() {
             break;
         case kDeviceStateConnecting:
             display->SetStatus(Lang::Strings::CONNECTING);
+#ifdef CONFIG_ROBOT_BASE_ENABLE
+            {
+                const std::string face = RobotEmotionHook::ResolveEmotion("neutral");
+                display->SetEmotion(face.c_str());
+            }
+#else
             display->SetEmotion("neutral");
+#endif
             display->SetChatMessage("system", "");
 #if CONFIG_ENABLE_STORY_PLAYER || CONFIG_ENABLE_MUSIC_PLAYER
     MediaLibrary::GetInstance().DuckForSpeech();   // im lặng ngay khi bắt đầu vào phiên *********************
@@ -915,7 +983,14 @@ void Application::HandleStateChangedEvent() {
             break;
         case kDeviceStateListening:
             display->SetStatus(Lang::Strings::LISTENING);
+#ifdef CONFIG_ROBOT_BASE_ENABLE
+            {
+                const std::string face = RobotEmotionHook::ResolveEmotion("neutral");
+                display->SetEmotion(face.c_str());
+            }
+#else
             display->SetEmotion("neutral");
+#endif
 #if CONFIG_ENABLE_STORY_PLAYER || CONFIG_ENABLE_MUSIC_PLAYER
     MediaLibrary::GetInstance().DuckForSpeech();   // XOÁ dòng UnduckAfterSpeech() cũ ở đây
 #endif		
@@ -1131,6 +1206,70 @@ void Application::SendMcpMessage(const std::string& payload) {
             mcp_broadcast_callback_(payload);
         }
     });
+}
+
+void Application::RequestScheduledTts(uint32_t schedule_id, const std::string& text) {
+    Schedule([this, schedule_id, text]() {
+        if (!protocol_) {
+            ESP_LOGE(TAG, "Cannot speak alarm: protocol is not initialized");
+            return;
+        }
+        if (GetDeviceState() != kDeviceStateIdle || scheduled_tts_pending_ || scheduled_tts_active_) {
+            ESP_LOGW(TAG, "Skipping scheduled TTS id=%" PRIu32 " because device is busy", schedule_id);
+            return;
+        }
+
+        scheduled_tts_pending_ = true;
+        if (!protocol_->IsAudioChannelOpened()) {
+            SetDeviceState(kDeviceStateConnecting);
+            Schedule([this, schedule_id, text]() { ContinueScheduledTts(schedule_id, text); });
+            return;
+        }
+        ContinueScheduledTts(schedule_id, text);
+    });
+}
+
+void Application::CancelScheduledTts() {
+    Schedule([this]() {
+        if (!scheduled_tts_pending_ && !scheduled_tts_active_) {
+            return;
+        }
+        scheduled_tts_pending_ = false;
+        scheduled_tts_active_ = false;
+        if (protocol_ && protocol_->IsAudioChannelOpened()) {
+            protocol_->CloseAudioChannel();
+        } else {
+            SetDeviceState(kDeviceStateIdle);
+            Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+        }
+    });
+}
+
+void Application::ContinueScheduledTts(uint32_t schedule_id, const std::string& text) {
+    const auto state = GetDeviceState();
+    if (!scheduled_tts_pending_ ||
+        (state != kDeviceStateConnecting && state != kDeviceStateIdle)) {
+        return;
+    }
+
+    auto& board = Board::GetInstance();
+    board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+    if (!protocol_->IsAudioChannelOpened() && !protocol_->OpenAudioChannel()) {
+        scheduled_tts_pending_ = false;
+        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+        SetDeviceState(kDeviceStateIdle);
+        return;
+    }
+
+    listening_mode_ = kListeningModeManualStop;
+    ESP_LOGI(TAG, "Requesting server TTS for schedule id=%" PRIu32, schedule_id);
+    if (!protocol_->SendAlarmNotification(schedule_id, text)) {
+        scheduled_tts_pending_ = false;
+        SetDeviceState(kDeviceStateIdle);
+        if (protocol_->IsAudioChannelOpened()) {
+            protocol_->CloseAudioChannel();
+        }
+    }
 }
 
 void Application::SetAecMode(AecMode mode) {

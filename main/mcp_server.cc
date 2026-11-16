@@ -57,6 +57,17 @@ static bool IsMcpToolEnabled(const std::string& name) {
         return name.compare(0, strlen(prefix), prefix) == 0;
     };
 
+    // Robot tools belong to Robot Base, not the generic board-tools switch.
+    // RobotBase::Init() registers them only when CONFIG_ROBOT_BASE_ENABLE is on;
+    // keep this gate explicit so enabling the robot feature is sufficient.
+    if (has_prefix("self.robot.")) {
+#if defined(CONFIG_ROBOT_BASE_ENABLE) && CONFIG_ROBOT_BASE_ENABLE
+        return true;
+#else
+        return false;
+#endif
+    }
+
     if (name == "self.get_device_status" || has_prefix("self.audio_speaker.")) {
         return CONFIG_MCP_ENABLE_DEVICE_TOOLS;
     }
@@ -75,7 +86,7 @@ static bool IsMcpToolEnabled(const std::string& name) {
     if (has_prefix("self.assets.")) {
         return CONFIG_MCP_ENABLE_ASSET_TOOLS;
     }
-    if (has_prefix("self.alarm.")) {
+    if (has_prefix("self.alarm.") || has_prefix("self.reminder.") || has_prefix("self.schedule.")) {
 #if CONFIG_MCP_ENABLE_ALARM_TOOLS
         return true;
 #else
@@ -90,10 +101,18 @@ static bool IsMcpToolEnabled(const std::string& name) {
 #endif
     }
     if (has_prefix("self.traffic_cam.")) {
+#if CONFIG_MCP_ENABLE_TRAFFIC_CAM_TOOLS
         return CONFIG_MCP_ENABLE_TRAFFIC_CAM_TOOLS;
+#else
+        return false;
+#endif
     }
     if (has_prefix("self.market.")) {
+#if CONFIG_MCP_ENABLE_CRYPTO_TOOLS
         return CONFIG_MCP_ENABLE_CRYPTO_TOOLS;
+#else
+        return false;
+#endif
     }
     if (name == "self.set_press_to_talk") {
         return CONFIG_MCP_ENABLE_PRESS_TO_TALK_TOOLS;
@@ -238,7 +257,8 @@ void McpServer::AddCommonTools() {
 
         AddTool("self.screen.set_idle_animation",
             "Change the idle screensaver animation on the screen while waiting for interaction. "
-            "Pass name = \"none\" to disable the animation and use the plain default icon instead. "
+            "Pass name = \"none\", \"default\", \"normal\", or \"mặc định\" to disable the animation "
+            "and use the plain default icon instead. "
             "Call `self.screen.list_idle_animations` first to get valid names.",
             PropertyList({
                 Property("name", kPropertyTypeString)

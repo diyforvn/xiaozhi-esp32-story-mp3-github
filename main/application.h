@@ -7,6 +7,7 @@
 #include <esp_timer.h>
 
 #include <string>
+#include <cstdint>
 #include <mutex>
 #include <deque>
 #include <memory>
@@ -109,6 +110,9 @@ public:
     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
     bool CanEnterSleepMode();
     void SendMcpMessage(const std::string& payload);
+    // Open an audio session if needed and ask the backend to speak this alarm.
+    void RequestScheduledTts(uint32_t schedule_id, const std::string& text);
+    void CancelScheduledTts();
     void RegisterMcpBroadcastCallback(std::function<void(const std::string&)> callback);
     void SetAecMode(AecMode mode);
     AecMode GetAecMode() const { return aec_mode_; }
@@ -144,6 +148,8 @@ private:
     bool aborted_ = false;
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
+    bool scheduled_tts_pending_ = false;
+    bool scheduled_tts_active_ = false;
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 
@@ -159,6 +165,7 @@ private:
     void HandleWakeWordDetectedEvent();
     void ContinueOpenAudioChannel(ListeningMode mode);
     void ContinueWakeWordInvoke(const std::string& wake_word);
+    void ContinueScheduledTts(uint32_t schedule_id, const std::string& text);
 
     // Activation task (runs in background)
     void ActivationTask();

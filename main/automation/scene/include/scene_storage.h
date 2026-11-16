@@ -4,7 +4,7 @@
 #include "scene_manager.h"
 
 // Doc / ghi danh sach Scene xuong NVS, serialize dang JSON (dung cJSON).
-// Cung pattern voi AlarmStorage (namespace rieng, 1 key luu ca mang JSON).
+// Dung namespace rieng va mot key JSON, doc lap voi schedule store.
 namespace SceneStorage {
 
     bool Save(const std::vector<Scene>& scenes);

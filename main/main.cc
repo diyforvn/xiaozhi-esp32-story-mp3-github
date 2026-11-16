@@ -1,4 +1,4 @@
-#include <esp_log.h>
+﻿#include <esp_log.h>
 #include <esp_err.h>
 #include <nvs.h>
 #include <nvs_flash.h>
@@ -8,8 +8,7 @@
 #include <freertos/task.h>
 
 #include "application.h"
-#include "alarm/alarm_integration.h"
-#include "xiaozhi_scene/include/scene_integration.h"
+#include "automation/automation_integration.h"
 
 #define TAG "main"
 
@@ -24,9 +23,8 @@ extern "C" void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    // trong application.cc, sau khi Wi-Fi + NVS + McpServer đã init
-    InitAlarmSubsystem();
-    //InitSceneSubsystem();  // gọi độc lập, không cần quan tâm thứ tự với InitAlarmSubsystem()
+    // Khoi tao cac tinh nang automation sau NVS, truoc vong lap ung dung.
+    InitAutomationSubsystem();
 
     // Initialize and run the application
     auto& app = Application::GetInstance();
