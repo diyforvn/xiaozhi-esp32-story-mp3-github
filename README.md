@@ -17,3 +17,5 @@ Video demo xe camera giao thông: https://youtu.be/JcaY30X8q5M
 Video demo bảng giá crypto: https://youtu.be/fLsvXwJNph4
 
 Video demo mắt robot Terminator: https://youtu.be/oSdQBhQcjac
+
+Video demo chức năng robot Xiaozhi: https://youtu.be/3T8MvWJ0nmU
