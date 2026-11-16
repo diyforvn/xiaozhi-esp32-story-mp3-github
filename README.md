@@ -15,3 +15,5 @@ Video demo phát nhạc từ sd Card: https://youtu.be/7ZbR-yUbHLg
 Video demo xe camera giao thông: https://youtu.be/JcaY30X8q5M
 
 Video demo bảng giá crypto: https://youtu.be/fLsvXwJNph4
+
+Video demo mắt robot Terminator: https://youtu.be/oSdQBhQcjac
